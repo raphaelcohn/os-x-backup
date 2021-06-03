@@ -1,0 +1,385 @@
+#!/usr/bin/env sh
+# This file is part of os-x-backup. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT. No part of os-x-backup, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+_program_path_find()
+{
+	if [ "${0%/*}" = "$0" ]; then
+
+		# We've been invoked by the interpreter as, say, bash program
+		if [ -r "$0" ]; then
+			pwd -P
+		# Clutching at straws; probably run via a download, anonymous script, etc, weird execve, etc
+		else
+			printf '\n'
+		fi
+
+	else
+
+		# We've been invoked with a relative or absolute path (also when invoked via PATH in a shell)
+
+		_program_path_find_parentPath()
+		{
+			parentPath="${scriptPath%/*}"
+			if [ -z "$parentPath" ]; then
+				parentPath='/'
+			fi
+			cd "$parentPath" 1>/dev/null
+		}
+
+		# pdksh / mksh have problems with unsetting a variable that was never set...
+		if [ "${CDPATH+set}" = 'set' ]; then
+			unset CDPATH
+		fi
+
+		if command -v realpath 1>/dev/null 2>/dev/null; then
+			(
+				scriptPath="$(realpath "$0")"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		elif command -v readlink 1>/dev/null 2>/dev/null; then
+			(
+				local recursionDepth=0
+				_program_path_resolve_symlinks_recursively()
+				{
+					local unresolvedPath="$1"
+					
+					recursionDepth=$((recursionDepth + 1))
+					
+					if [ $recursionDepth -gt 10 ]; then
+						printf '%s\n' 'Recursion to depths greater than 10 is not allowed when resolving links.'
+						return 1
+					fi
+					
+					local potentialLinkDestination="$(readlink -- "$unresolvedPath")"
+					
+					if [ -z "$potentialLinkDestination" ]; then
+						scriptPath="$unresolvedPath"
+						return 0
+					fi
+					local linkDestination="$potentialLinkDestination"
+					local parentFolderPath="${unresolvedPath%/*}"
+					
+					if [ "$parentFolderPath" = "$unresolvedPath" ]; then
+						_program_path_resolve_symlinks_recursively "$linkDestination"
+					else
+						case "$linkDestination" in
+														
+							/*)
+								_program_path_resolve_symlinks_recursively "$linkDestination"
+							;;
+							
+							*)
+								_program_path_resolve_symlinks_recursively "$parentFolderPath"/"$linkDestination"
+							;;
+							
+						esac
+					fi
+				}
+
+				scriptPath="$0"
+				_program_path_resolve_symlinks_recursively "$scriptPath"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		else
+			# This approach will fail in corner cases where the script itself is a symlink in a path not parallel with the concrete script
+			(
+				scriptPath="$0"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		fi
+
+	fi
+}
+
+cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
+
+. functions/common.sh
+. functions/apfs-snapshot.sh
+. functions/time-machine.sh
+
+set_mount_point_folder_path()
+{
+	local time_machine_snapshot_date="$1"
+	local our_mount_name="$2"
+	
+	local snapshot_name="$(time_machine_snapshot_date_to_name "$time_machine_snapshot_date")"
+	mount_point_folder_path="$our_snapshot_mounts_folder_path"/"$our_mount_name"
+}
+
+depends mkdir
+make_our_backup_folder()
+{
+	our_backup_folder_path="$TMPDIR"/backup
+	mkdir -m 0700 -p "$our_backup_folder_path"
+}
+
+depends rmdir
+remove_our_backup_folder()
+{
+	rmdir "$our_backup_folder_path"
+	our_backup_folder_path=''
+}
+
+depends mkdir
+make_our_snapshot_mounts_folder()
+{
+	our_snapshot_mounts_folder_path="$TMPDIR"/snapshot-mounts
+	mkdir -m 0700 -p "$our_snapshot_mounts_folder_path"
+}
+
+depends rmdir
+remove_our_snapshot_mounts_folder()
+{
+	rmdir "$our_snapshot_mounts_folder_path"
+	our_snapshot_mounts_folder_path=''
+}
+
+mount_time_machine_snapshot()
+{
+	set_mount_point_folder_path "$time_machine_snapshot_date" "$our_mount_name"
+	
+	local snapshot_name="$(time_machine_snapshot_date_to_name "$time_machine_snapshot_date")"
+	mount_apfs_snapshot "$snapshot_name" "$volumeDevice" "$mount_point_folder_path"
+}
+
+unmount_time_machine_snapshot()
+{
+	unmount_apfs_snapshot_forcibly "$mount_point_folder_path"
+	rmdir "$mount_point_folder_path"
+}
+
+depends rmdir
+use_time_machine_snapshot()
+{
+	local time_machine_snapshot_date="$1"
+	local volumeDevice="$2"
+	local our_mount_name="$3"
+	local callback="$4"
+	shift 4
+
+	mount_point_folder_path=''
+	mount_time_machine_snapshot
+		
+		$callback "$@"
+	
+	unmount_time_machine_snapshot
+	mount_point_folder_path=''
+}
+
+ensure_mounts_and_snapshots_cleaned_up()
+{
+	if [ -n "$time_machine_snapshot_date" ]; then
+		
+		if [ -n "$mount_point_folder_path" ]; then
+			set +e
+				unmount_time_machine_snapshot
+				mount_point_folder_path=''
+			set -e
+		fi
+
+		set +e
+			delete_time_machine_snapshot "$time_machine_snapshot_date"
+			time_machine_snapshot_date=''
+		set -e
+	fi
+	
+	remove_temporary_directory
+}
+
+take_and_use_time_machine_snapshot()
+{
+	local volumeDevice="$1"
+	local our_mount_name="$2"
+	local callback="$3"
+	shift 3
+
+	trap ensure_mounts_and_snapshots_cleaned_up EXIT
+	time_machine_snapshot_date=''
+	take_time_machine_snapshot
+	
+		use_time_machine_snapshot "$time_machine_snapshot_date" "$volumeDevice" "$our_mount_name" "$callback" "$our_mount_name" "$@"
+		
+	delete_time_machine_snapshot "$time_machine_snapshot_date"
+	time_machine_snapshot_date=''
+	trap remove_temporary_directory EXIT
+}
+
+depends mount awk
+find_apfs_mounts()
+{
+	mount -t apfs | awk -F ' ' '{print $1,$3}'
+}
+
+depends tmutil rm
+time_machine_is_volume_excluded()
+{
+	local volumeDevice="$1"
+	
+	local is_excluded_file_path="$TMPDIR"/is_excluded
+	tmutil isexcluded "$volumeDevice" >"$is_excluded_file_path"
+	
+	local state
+	local path
+	IFS=' ' read -r state path <"$is_excluded_file_path"
+	
+	case "$state" in
+		
+		'[Excluded]')
+			is_excluded='true'
+		;;
+		
+		'[Included]')
+			is_excluded='false'
+		;;
+		
+		*)
+			is_excluded='false'
+		;;
+		
+	esac
+	
+	rm "$is_excluded_file_path"
+}
+
+depends tr rm
+iterate_over_time_machine_volumes()
+{
+	local callback="$1"
+	shift 1
+	
+	local apfs_mounts_file_path="$TMPDIR"/apfs_mounts
+	find_apfs_mounts >"$apfs_mounts_file_path"
+	
+	local device_path
+	local volumeDevice
+	while IFS=' ' read -r device_path volumeDevice
+	do
+		local is_excluded
+		time_machine_is_volume_excluded "$volumeDevice"
+		if $is_excluded; then
+			printf "Excluding %s\n" "$volumeDevice" 1>&2
+			continue
+		fi
+		
+		# Not used.
+		local disk_name="${device_path##*/}"
+		
+		if [ "$volumeDevice" = '/' ]; then
+			local our_mount_name='root'
+		else
+			local volumeDevice_without_leading_slash="${volumeDevice#/}"
+			local relative_mount_name="$(printf '%s' "$volumeDevice_without_leading_slash" | tr '/' '_')"
+			local our_mount_name="root_${relative_mount_name}"
+		fi
+		
+		$callback "$volumeDevice" "$our_mount_name" "$@"
+	done <"$apfs_mounts_file_path"
+	
+	rm "$apfs_mounts_file_path"
+}
+
+make_and_use_snapshots()
+{
+	local callback="$1"
+	shift 1
+	
+	local our_snapshot_mounts_folder_path
+	make_our_snapshot_mounts_folder
+
+		iterate_over_time_machine_volumes take_and_use_time_machine_snapshot $callback "$@"
+
+	remove_our_snapshot_mounts_folder
+}
+
+depends rsync
+some_callback()
+{
+	local our_mount_name="$1"
+	local hello="$2"
+	
+	printf "Using snapshot for %s as %s\n" "$volumeDevice" "$our_mount_name" 1>&2
+	
+	set -- --archive --hard-links --acls --xattrs --fake-super --whole-file --one-file-system --sparse --checksum-seed="$(insecure_32_bit_random_number)"
+		
+	local our_mount_name_rsync_include_file_path="$volume_configuration_folder_path"/"$our_mount_name"
+	
+	local is_usable
+	folder_is_usable "$our_mount_name_rsync_include_file_path"
+	if ! $is_usable; then
+		return 0
+	fi
+	
+	# run rysnc to "$our_backup_folder_path"/
+	local rsync_include_file_path="$configuration_folder_path"/include.rsync
+	file_is_usable "$rsync_include_file_path"
+	if $is_usable; then
+		set -- "$@" --include-file="$rsync_include_file_path"
+	fi
+	
+	local rsync_exclude_file_path="$configuration_folder_path"/exclude.rsync
+	file_is_usable "$rsync_exclude_file_path"
+	if $is_usable; then
+		set -- "$@" --exclude-file="$rsync_exclude_file_path"
+	fi
+	
+	local rsync_files_list_file_path="$configuration_folder_path"/files-list.rsync
+	file_is_usable "$rsync_files_list_file_path"
+	if $is_usable; then
+		set -- "$@" --files-from="$rsync_files_list_file_path"
+	fi
+	
+	local include_and_exclude_patterns_and_file_names_are_null_terminated="$configuration_folder_path"/null-terminated
+	local exists
+	file_exists "$include_and_exclude_patterns_and_file_names_are_null_terminated"
+	if $exists; then
+		set -- "$@" --from0
+	fi
+	
+	set -x
+	rsync "$@" "$mount_point_folder_path" "$our_backup_folder_path"
+}
+
+depends mkdir
+set_configuration_folder_paths()
+{
+	cd ~ 1>/dev/null 2>/dev/null
+		configuration_folder_path="$(pwd)"/.os-x-backup
+	cd - 1>/dev/null 2>/dev/null
+	
+	volume_configuration_folder_path="$configuration_folder_path"
+	set +e
+		mkdir -m 0500 -p "$volume_configuration_folder_path" 1>/dev/null 2>/dev/null
+	set -e
+}
+
+main()
+{
+	local temporary_folder_path="$(pwd)"/temporary
+	make_temporary_folder
+	
+	local configuration_folder_path
+	local volume_configuration_folder_path
+	set_configuration_folder_paths
+	
+	make_our_backup_folder
+	
+		make_and_use_snapshots some_callback 'hello'
+	
+	remove_our_backup_folder
+}
+
+main "$@"
+
+
