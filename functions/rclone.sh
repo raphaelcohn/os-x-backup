@@ -4,7 +4,7 @@
 
 set_rclone_root_path()
 {
-	rclone_root_path="$(pwd)"/tools/rclone
+	rclone_root_path="$(pwd)"/library/rclone
 }
 
 depends readlink
@@ -17,7 +17,7 @@ set_rclone_version()
 }
 
 depends uname
-put_rclone_on_path()
+set_rclone_parent_path()
 {
 	local uname_operating_system="$(uname -s)"
 	local uname_architecture="$(uname -m)"
@@ -143,5 +143,5 @@ put_rclone_on_path()
 
 	esac
 	
-	export PATH="$rclone_root_path"/current/"$rclone_operating_system"/"$rclone_architecture":"$PATH"
+	rclone_parent_path="$rclone_root_path"/current/"$rclone_operating_system"/"$rclone_architecture"
 }
