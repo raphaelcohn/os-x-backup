@@ -105,6 +105,8 @@ _program_path_find()
 
 cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
 
+_program_name='os-x-backup'
+
 . functions/common.sh
 . functions/apfs-snapshot.sh
 . functions/time-machine.sh
@@ -303,7 +305,7 @@ make_and_use_snapshots()
 	remove_our_snapshot_mounts_folder
 }
 
-depends rsync
+depends find mkdir rsync
 some_callback()
 {
 	local our_mount_name="$1"
@@ -311,44 +313,66 @@ some_callback()
 	
 	printf "Using snapshot for %s as %s\n" "$volumeDevice" "$our_mount_name" 1>&2
 	
-	set -- --archive --hard-links --acls --xattrs --fake-super --whole-file --one-file-system --sparse --checksum-seed="$(insecure_32_bit_random_number)"
 		
-	local our_mount_name_rsync_include_file_path="$volume_configuration_folder_path"/"$our_mount_name"
+	local our_mount_name_configuration_path="$volume_configuration_folder_path"/"$our_mount_name"
 	
 	local is_usable
-	folder_is_usable "$our_mount_name_rsync_include_file_path"
+	folder_is_usable "$our_mount_name_configuration_path"
 	if ! $is_usable; then
 		return 0
 	fi
 	
-	# run rysnc to "$our_backup_folder_path"/
-	local rsync_include_file_path="$configuration_folder_path"/include.rsync
-	file_is_usable "$rsync_include_file_path"
-	if $is_usable; then
-		set -- "$@" --include-file="$rsync_include_file_path"
-	fi
+	local rsync_path="$(command -v rsync)"
+	local our_mount_backup_folder_path="$"
 	
-	local rsync_exclude_file_path="$configuration_folder_path"/exclude.rsync
-	file_is_usable "$rsync_exclude_file_path"
-	if $is_usable; then
-		set -- "$@" --exclude-file="$rsync_exclude_file_path"
-	fi
+	# Given a list of folders, sync only these, or choose the root set of folders
+	local folder_paths_file="$TMPDIR"/folder_paths
+	cd "$our_mount_name_configuration_path" 1>/dev/null 2>/dev/null
+		# Only works on Mac OS X and is slow: https://stackoverflow.com/questions/4269798/use-gnu-find-to-show-only-the-leaf-directories
+		# find . -type d -exec sh -c '(ls -p "{}"|grep />/dev/null)||echo "{}"' \; >"$folder_paths_file"
+		
+		# Modified from https://superuser.com/questions/195879/using-find-to-list-only-directories-with-no-more-childs
+		{
+			find . -type d
+			printf '\n'
+		} | awk 'index($0,prev"/")!=1 && NR!=1 {print prev} 1 {sub(/\/$/,""); prev=$0}' >"$folder_paths_file"
+	cd - 1>/dev/null 2>/dev/null
 	
-	local rsync_files_list_file_path="$configuration_folder_path"/files-list.rsync
-	file_is_usable "$rsync_files_list_file_path"
-	if $is_usable; then
-		set -- "$@" --files-from="$rsync_files_list_file_path"
-	fi
+	local folder_path_sync
+	while IFS= read -r folder_path_sync
+	do
+		set -x
+		if [ "$folder_path_sync" = '.' ]; then
+			local copy_from_folder_path="$mount_point_folder_path"
+			local backup_to_folder_path="$our_mount_backup_folder_path"
+		else
+			# strip leading './'
+			local relative_folder_path_sync="${folder_path_sync#./}"
+			local our_mount_backup_folder_path="$our_backup_folder_path"/"$our_mount_name"
+
+			local copy_from_folder_path="$mount_point_folder_path"/"$relative_folder_path_sync"
+			local backup_to_folder_path="$our_mount_backup_folder_path"/"$relative_folder_path_sync"
+		fi
+		mkdir -m 0700 -p "$backup_to_folder_path"
+		
+		set --
+		local rsync_filter_file_path="$our_mount_name_configuration_path"/file.rsync-filter
+		file_is_usable "$rsync_filter_file_path"
+		if $is_usable; then
+			set -- "$@" --filter="merge,e ${rsync_filter_file_path}"
+		else
+			# Use .rsync-filter files per-folder to manage files to send.
+			# Equivalent to -F -F.
+			set -- "$@" --filter='dir-merge /.rsync-filter' --filter='exclude .rsync-filter'
+		fi
+		
+		echo "$@"
+		exit 99
+		
+		#  --acls --xattrs --fake-super
+		/usr/bin/env -i "$rsync_path" -v --archive --hard-links --whole-file --one-file-system --sparse --checksum-seed="$(secure_signed_32_bit_random_number)" "$@" "$copy_from_folder_path"/ "$backup_to_folder_path"/
 	
-	local include_and_exclude_patterns_and_file_names_are_null_terminated="$configuration_folder_path"/null-terminated
-	local exists
-	file_exists "$include_and_exclude_patterns_and_file_names_are_null_terminated"
-	if $exists; then
-		set -- "$@" --from0
-	fi
-	
-	set -x
-	rsync "$@" "$mount_point_folder_path" "$our_backup_folder_path"
+	done <"$folder_paths_file"
 }
 
 depends mkdir

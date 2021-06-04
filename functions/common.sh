@@ -6,7 +6,14 @@ _exit_message()
 {
 	local code="$1"
 	local message="$2"
-	printf "%s\n" "$message"
+	
+	if [ -n ${_program_name+set} ]; then
+		local program_name="$_program_name"
+	else
+		local program_name='(unknown)'
+	fi
+	
+	printf "%s:%s\n" "$program_name" "$message"
 	exit $code
 }
 
@@ -79,6 +86,14 @@ exit_if_character_device_missing()
 	fi
 }
 
+exit_if_symlink_missing()
+{
+	local symlink_path="$1"
+	if [ ! -L "$symlink_path" ]; then
+		exit_system_file_message "Symlink $symlink_path is not a symlink"
+	fi
+}
+
 folder_is_usable()
 {
 	local folder_path="$1"
@@ -97,12 +112,12 @@ folder_is_usable()
 
 file_exists()
 {
-	local folder_path="$1"
-	if [ ! -e "$folder_path" ]; then
+	local file_path="$1"
+	if [ ! -e "$file_path" ]; then
 		exists=false
-	elif [ ! -f "$folder_path" ]; then
+	elif [ ! -f "$file_path" ]; then
 		exists=false
-	elif [ ! -r "$folder_path" ]; then
+	elif [ ! -r "$file_path" ]; then
 		exists=false
 	else
 		exists=true
@@ -137,11 +152,24 @@ depends()
 	done
 }
 
-depends od head tr
-insecure_32_bit_random_number()
+_secure_random_number()
 {
+	local output_type="$1"
+	
 	exit_if_character_device_missing /dev/urandom
-	od -vAn -N4 -t u4 </dev/urandom | head -n 1 | tr -d ' '
+	od -vAn -N4 -t "$output_type" </dev/urandom | head -n 1 | tr -d ' '
+}
+
+depends od head tr
+secure_unsigned_32_bit_random_number()
+{
+	_secure_random_number u4
+}
+
+depends od head tr
+secure_signed_32_bit_random_number()
+{
+	_secure_random_number d4
 }
 
 depends mkdir rm
@@ -149,7 +177,7 @@ make_temporary_folder()
 {
 	mkdir -m 0700 -p "$temporary_folder_path"
 	
-	local random_number="$(insecure_32_bit_random_number)"
+	local random_number="$(secure_unsigned_32_bit_random_number)"
 	
 	export TMPDIR="$temporary_folder_path"/"$random_number"
 	mkdir -m 0700 "$TMPDIR" || exit_can_not_create_message "Did someone else create our folder trying to hack us?"
@@ -159,4 +187,68 @@ make_temporary_folder()
 		rm -rf "$TMPDIR"
 	}
 	trap remove_temporary_directory EXIT
+}
+
+
+depends mkdir cat sleep rm
+singleton_instance_lock()
+{
+	single_instance_lock_folder_path=''
+
+	local potential_single_instance_lock_folder_path="$temporary_folder_path"/"$_program_name"
+	local lock_holder_pid_file_path="$potential_single_instance_lock_folder_path"/lock_holder.pid
+	local loop_count=0
+	
+	local exit_code
+	while true
+	do
+		set +e
+			mkdir -m 0700 "$potential_single_instance_lock_folder_path" 1>/dev/null 2>/dev/null
+			exit_code=$?
+		set -e
+		
+		if [ $exit_code -eq 0 ]; then
+			printf '%s\n' $$ >"$lock_holder_pid_file_path"
+			single_instance_lock_folder_path="$potential_single_instance_lock_folder_path"
+			break
+		fi
+		
+		local loop_division=$((loop_count % 5))
+		if [ $loop_division -eq 0 ]; then
+			local lock_holder_pid=''
+			set +e
+				lock_holder_pid="$(cat "$lock_holder_pid_file_path" 2>/dev/null)"
+			set -e
+			
+			if [ -z "$lock_holder_pid" ]; then
+				lock_holder_pid='(unknown)'
+			fi
+			
+			printf '%s:%s\n' "$_program_name" "Still waiting for single instance lock $potential_single_instance_lock_folder_path held by process $lock_holder_pid"
+		fi
+		loop_count=$((loop_count + 1))
+		
+		# Non-portable fractional sleep
+		set +e
+			sleep 0.1 1>/dev/null 2>/dev/null
+			exit_code=$?
+		set -e
+		
+		if [ $exit_code -ne 0 ]; then
+			sleep 1 1>/dev/null 2>/dev/null
+		fi
+		
+	done
+	
+	remove_single_instance_lock_folder_path()
+	{
+		if [ -n "$single_instance_lock_folder_path" ]; then
+			rm -rf "$single_instance_lock_folder_path"
+			single_instance_lock_folder_path=''
+		fi
+		
+		remove_temporary_directory
+	}
+	
+	trap remove_single_instance_lock_folder_path EXIT
 }

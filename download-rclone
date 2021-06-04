@@ -1,0 +1,245 @@
+#!/usr/bin/env sh
+# This file is part of os-x-backup. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT. No part of os-x-backup, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+_program_path_find()
+{
+	if [ "${0%/*}" = "$0" ]; then
+
+		# We've been invoked by the interpreter as, say, bash program
+		if [ -r "$0" ]; then
+			pwd -P
+		# Clutching at straws; probably run via a download, anonymous script, etc, weird execve, etc
+		else
+			printf '\n'
+		fi
+
+	else
+
+		# We've been invoked with a relative or absolute path (also when invoked via PATH in a shell)
+
+		_program_path_find_parentPath()
+		{
+			parentPath="${scriptPath%/*}"
+			if [ -z "$parentPath" ]; then
+				parentPath='/'
+			fi
+			cd "$parentPath" 1>/dev/null
+		}
+
+		# pdksh / mksh have problems with unsetting a variable that was never set...
+		if [ "${CDPATH+set}" = 'set' ]; then
+			unset CDPATH
+		fi
+
+		if command -v realpath 1>/dev/null 2>/dev/null; then
+			(
+				scriptPath="$(realpath "$0")"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		elif command -v readlink 1>/dev/null 2>/dev/null; then
+			(
+				local recursionDepth=0
+				_program_path_resolve_symlinks_recursively()
+				{
+					local unresolvedPath="$1"
+					
+					recursionDepth=$((recursionDepth + 1))
+					
+					if [ $recursionDepth -gt 10 ]; then
+						printf '%s\n' 'Recursion to depths greater than 10 is not allowed when resolving links.'
+						return 1
+					fi
+					
+					local potentialLinkDestination="$(readlink -- "$unresolvedPath")"
+					
+					if [ -z "$potentialLinkDestination" ]; then
+						scriptPath="$unresolvedPath"
+						return 0
+					fi
+					local linkDestination="$potentialLinkDestination"
+					local parentFolderPath="${unresolvedPath%/*}"
+					
+					if [ "$parentFolderPath" = "$unresolvedPath" ]; then
+						_program_path_resolve_symlinks_recursively "$linkDestination"
+					else
+						case "$linkDestination" in
+														
+							/*)
+								_program_path_resolve_symlinks_recursively "$linkDestination"
+							;;
+							
+							*)
+								_program_path_resolve_symlinks_recursively "$parentFolderPath"/"$linkDestination"
+							;;
+							
+						esac
+					fi
+				}
+
+				scriptPath="$0"
+				_program_path_resolve_symlinks_recursively "$scriptPath"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		else
+			# This approach will fail in corner cases where the script itself is a symlink in a path not parallel with the concrete script
+			(
+				scriptPath="$0"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		fi
+
+	fi
+}
+
+cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
+
+_program_name='download-rclone'
+
+. functions/common.sh
+. functions/rclone.sh
+
+depends curl
+download_using_curl()
+{
+	local url="$1"
+	local destination_folder_path="$2"
+	local file_name="$3"
+	
+	# Mac OS X using homebrew has a version of curl that supports TLS 1.3.
+	local curl_command='/usr/local/opt/curl/bin/curl'
+	if [ -x "$curl_command" ]; then
+		local tls_version=1.3
+	else
+		curl_command="$(command -v curl)"
+		local tls_version=1.2
+	fi
+
+	printf 'Downloading %s to %s using curl… ' "$url" "$destination_folder_path" 1>&2
+	cd "$destination_folder_path" 1>/dev/null 2>/dev/null
+		set +e
+			"$curl_command" --silent --fail --proto '=https' --http2 --tlsv${tls_version} --output "$file_name" "$url"
+			local exit_code=$?
+		set -e
+		case $exit_code in
+			
+			0)
+				printf 'done\n' 1>&2
+				failed=false
+			;;
+			
+			22)
+				printf 'not found\n' 1>&2
+				failed=true
+			;;
+			
+			*)
+				exit_temporary_fail_message "failed"
+			;;
+			
+		esac
+	cd - 1>/dev/null 2>/dev/null
+}
+
+depends mkdir unzip rm chmod mv
+download_and_extract_zip()
+{
+	local url="$1"
+
+	download_to_folder_path="$TMPDIR"/downloaded-zip
+	download_file_name=download.zip
+	
+	mkdir -m 0700 -p "$download_to_folder_path"
+	
+	local failed
+	download_using_curl "$url" "$download_to_folder_path" "$download_file_name"
+	
+	if $failed; then
+		return 0
+	fi
+	
+	cd "$download_to_folder_path" 1>/dev/null 2>/dev/null
+		unzip -qq "$download_file_name"
+		rm "$download_file_name"
+	cd - 1>/dev/null 2>/dev/null
+	
+	mkdir -m 0700 -p "$rclone_parent_folder_path"
+	
+	local extracted_folder_path="$download_to_folder_path"/"$rclone_root_zip_folder_name"
+	set +f
+		chmod 0600 "$extracted_folder_path"/*
+	set -f
+	chmod 0700 "$extracted_folder_path"/rclone
+	mv "$extracted_folder_path" "$rclone_folder_path"
+}
+
+download_rclone_for_operating_system_and_architecture()
+{
+	local rclone_version="$1"
+	local operating_system="$2"
+	local architecture="$3"
+	
+	local rclone_parent_folder_path="$rclone_root_path"/"$rclone_version"/"$operating_system"
+	local rclone_folder_path="$rclone_parent_folder_path"/"$architecture"
+	
+	local rclone_binary_file_path="$rclone_folder_path"/rclone
+	local is_usable
+	file_is_usable "$rclone_binary_file_path"
+	if [ $is_usable ]; then
+		if [ -x "$rclone_binary_file_path" ]; then
+			return 0
+		fi
+	fi
+	
+	local rclone_root_zip_folder_name=rclone-v"$rclone_version"-"$operating_system"-"$architecture"
+	local file_name="$rclone_root_zip_folder_name".zip
+	
+	local download_to_folder_path
+	local download_file_name
+	download_and_extract_zip https://downloads.rclone.org/v"$rclone_version"/"$file_name"
+}
+
+main()
+{
+	local temporary_folder_path="$(pwd)"/temporary
+	make_temporary_folder
+	
+	local rclone_root_path
+	set_rclone_root_path
+	
+	local rclone_version
+	set_rclone_version
+	
+	singleton_instance_lock 'download-rclone'
+	
+	local tools_folder_path="$(pwd)"/tools
+	
+	local operating_system
+	for operating_system in linux osx
+	do
+		local architecture
+		for architecture in amd64 arm64
+		do
+			download_rclone_for_operating_system_and_architecture "$rclone_version" "$operating_system" "$architecture"
+		done
+	done
+
+	for operating_system in freebsd openbsd netbsd solaris
+	do
+		local architecture=amd64
+		download_rclone_for_operating_system_and_architecture "$rclone_version" "$operating_system" "$architecture"
+	done
+}
+
+main "$@"
