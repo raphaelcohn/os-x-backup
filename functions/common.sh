@@ -72,6 +72,40 @@ exit_permission_message()
 	_exit_error_message $EX_NOPERM "$1"
 }
 
+exit_if_folder_missing()
+{
+	local folder_path="$1"
+	if [ ! -e "$folder_path" ]; then
+		exit_configuration_message "folder $folder_path does not exist"
+	fi
+	if [ ! -r "$folder_path" ]; then
+		exit_permission_message "folder $folder_path is not readable"
+	fi
+	if [ ! -d "$folder_path" ]; then
+		exit_configuration_message "folder $folder_path is not a folder"
+	fi
+	if [ ! -x "$folder_path" ]; then
+		exit_permission_message "folder $folder_path is not searchable"
+	fi
+}
+
+exit_if_configuration_file_missing()
+{
+	local file_path="$1"
+	if [ ! -e "$file_path" ]; then
+		exit_configuration_message "configuration file $file_path does not exist"
+	fi
+	if [ ! -r "$file_path" ]; then
+		exit_permission_message "configuration file $file_path is not readable"
+	fi
+	if [ ! -f "$file_path" ]; then
+		exit_configuration_message "configuration file $file_path is not a file"
+	fi
+	if [ ! -s "$file_path" ]; then
+		exit_configuration_message "configuration file $file_path is empty"
+	fi
+}
+
 exit_if_character_device_missing()
 {
 	local character_device_path="$1"
@@ -126,14 +160,14 @@ file_exists()
 
 file_is_usable()
 {
-	local folder_path="$1"
-	if [ ! -e "$folder_path" ]; then
+	local file_path="$1"
+	if [ ! -e "$file_path" ]; then
 		is_usable=false
-	elif [ ! -f "$folder_path" ]; then
+	elif [ ! -f "$file_path" ]; then
 		is_usable=false
-	elif [ ! -r "$folder_path" ]; then
+	elif [ ! -r "$file_path" ]; then
 		is_usable=false
-	elif [ ! -s "$folder_path" ]; then
+	elif [ ! -s "$file_path" ]; then
 		is_usable=false
 	else
 		is_usable=true
@@ -251,4 +285,52 @@ singleton_instance_lock()
 	}
 	
 	trap remove_single_instance_lock_folder_path EXIT
+}
+
+set_configuration_folder_path()
+{
+	if [ -n "${OS_X_CONFIGURATION_FOLDER_PATH+set}" ]; then
+		cd "$OS_X_CONFIGURATION_FOLDER_PATH" 1>/dev/null 2>/dev/null
+			configuration_folder_path="$(pwd)"
+		cd - 1>/dev/null 2>/dev/null
+		unset OS_X_CONFIGURATION_FOLDER_PATH
+	else
+		cd ~ 1>/dev/null 2>/dev/null
+			configuration_folder_path="$(pwd)"/.config/os-x-backup
+		cd - 1>/dev/null 2>/dev/null
+	fi
+	exit_if_folder_missing "$configuration_folder_path"
+}
+
+run_in_new_environment()
+{
+	local environment_name="$1"
+	shift 1
+
+	local environment_file_path="$configuration_folder_path"/"$environment_name".environment.sh
+	
+	/usr/bin/env -i "$tools_folder_path"/environment-wrapper "$environment_file_path" "$@"
+}
+
+depends head
+first_character()
+{
+	printf '%s' "$1" | head -c 1
+}
+
+depends tail
+last_character()
+{
+	printf '%s' "$1" | tail -c 1
+}
+
+is_absolute_path()
+{
+	local path="$1"
+	
+	if [ "$(first_character "$path")" = '/' ]; then
+		is_absolute=true
+	else
+		is_absolute=false
+	fi
 }

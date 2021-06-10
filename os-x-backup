@@ -108,7 +108,11 @@ cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
 _program_name='os-x-backup'
 
 . functions/common.sh
+. functions/apfs.sh
 . functions/apfs-snapshot.sh
+. functions/rclone.sh
+. functions/remote-backup.sh
+. functions/rsync.sh
 . functions/time-machine.sh
 
 set_mount_point_folder_path()
@@ -218,43 +222,6 @@ take_and_use_time_machine_snapshot()
 	trap remove_temporary_directory EXIT
 }
 
-depends mount awk
-find_apfs_mounts()
-{
-	mount -t apfs | awk -F ' ' '{print $1,$3}'
-}
-
-depends tmutil rm
-time_machine_is_volume_excluded()
-{
-	local volumeDevice="$1"
-	
-	local is_excluded_file_path="$TMPDIR"/is_excluded
-	tmutil isexcluded "$volumeDevice" >"$is_excluded_file_path"
-	
-	local state
-	local path
-	IFS=' ' read -r state path <"$is_excluded_file_path"
-	
-	case "$state" in
-		
-		'[Excluded]')
-			is_excluded='true'
-		;;
-		
-		'[Included]')
-			is_excluded='false'
-		;;
-		
-		*)
-			is_excluded='false'
-		;;
-		
-	esac
-	
-	rm "$is_excluded_file_path"
-}
-
 depends tr rm
 iterate_over_time_machine_volumes()
 {
@@ -305,32 +272,29 @@ make_and_use_snapshots()
 	remove_our_snapshot_mounts_folder
 }
 
-depends find mkdir rsync
-some_callback()
+depends find awk rm
+make_backup_of_mount()
 {
 	local our_mount_name="$1"
-	local hello="$2"
+	local remote="$2"
+	local use_rsync="$3"
+	local backup_kind="$4"
 	
 	printf "Using snapshot for %s as %s\n" "$volumeDevice" "$our_mount_name" 1>&2
 	
-		
-	local our_mount_name_configuration_path="$volume_configuration_folder_path"/"$our_mount_name"
+	local our_mount_name_configuration_path
+	set_our_mount_name_configuration_path "$our_mount_name"
 	
 	local is_usable
 	folder_is_usable "$our_mount_name_configuration_path"
 	if ! $is_usable; then
+		printf 'No configuration for mount %s at %s\n' "$our_mount_name" "$our_mount_name_configuration_path"
 		return 0
 	fi
 	
-	local rsync_path="$(command -v rsync)"
-	local our_mount_backup_folder_path="$"
-	
-	# Given a list of folders, sync only these, or choose the root set of folders
+	# Rather than trying to filter an entire root file system (eg /), this divides it up into interesting folders (eg /Users/raph) and only syncs them.
 	local folder_paths_file="$TMPDIR"/folder_paths
 	cd "$our_mount_name_configuration_path" 1>/dev/null 2>/dev/null
-		# Only works on Mac OS X and is slow: https://stackoverflow.com/questions/4269798/use-gnu-find-to-show-only-the-leaf-directories
-		# find . -type d -exec sh -c '(ls -p "{}"|grep />/dev/null)||echo "{}"' \; >"$folder_paths_file"
-		
 		# Modified from https://superuser.com/questions/195879/using-find-to-list-only-directories-with-no-more-childs
 		{
 			find . -type d
@@ -338,72 +302,217 @@ some_callback()
 		} | awk 'index($0,prev"/")!=1 && NR!=1 {print prev} 1 {sub(/\/$/,""); prev=$0}' >"$folder_paths_file"
 	cd - 1>/dev/null 2>/dev/null
 	
-	local folder_path_sync
-	while IFS= read -r folder_path_sync
+	# Expand backup_kind to a callback with arguments (a sort of a closure).
+	case "$backup_kind" in
+		
+		full)
+			set -- rclone_or_rsync_full_back_up "$our_mount_name" "$mount_point_folder_path"
+		;;
+		
+		replaced)
+			set -- rclone_or_rsync_replaced_back_up "$our_mount_name" "$mount_point_folder_path"
+		;;
+		
+		copy_dest|differential)
+			set -- rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_incremental_backup "$our_mount_name" "$mount_point_folder_path" "$backup_kind"
+		;;
+		
+		link_dest)
+			guard_link_dest_is_use_rsync "$use_rsync"
+			set -- rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_incremental_backup "$our_mount_name" "$mount_point_folder_path" 'link_dest'
+		;;
+	
+		incremental)
+			exit_configuration_message 'incremental back ups are not yet properly supported'
+		;;
+	
+		*)
+			exit_configuration_message "Unknown backup kind $backup_kind"
+		;;
+		
+	esac
+	
+	local folder_path
+	local relative_path_under_mount_to_synchronize
+	while IFS= read -r folder_path
 	do
-		set -x
-		if [ "$folder_path_sync" = '.' ]; then
-			local copy_from_folder_path="$mount_point_folder_path"
-			local backup_to_folder_path="$our_mount_backup_folder_path"
+		if [ "$folder_path" = '.' ]; then
+			relative_path_under_mount_to_synchronize=''
 		else
 			# strip leading './'
-			local relative_folder_path_sync="${folder_path_sync#./}"
-			local our_mount_backup_folder_path="$our_backup_folder_path"/"$our_mount_name"
-
-			local copy_from_folder_path="$mount_point_folder_path"/"$relative_folder_path_sync"
-			local backup_to_folder_path="$our_mount_backup_folder_path"/"$relative_folder_path_sync"
+			relative_path_under_mount_to_synchronize="${folder_path#./}"
 		fi
-		mkdir -m 0700 -p "$backup_to_folder_path"
+		"$@" "$relative_path_under_mount_to_synchronize"
 		
-		set --
-		local rsync_filter_file_path="$our_mount_name_configuration_path"/file.rsync-filter
-		file_is_usable "$rsync_filter_file_path"
-		if $is_usable; then
-			set -- "$@" --filter="merge,e ${rsync_filter_file_path}"
-		else
-			# Use .rsync-filter files per-folder to manage files to send.
-			# Equivalent to -F -F.
-			set -- "$@" --filter='dir-merge /.rsync-filter' --filter='exclude .rsync-filter'
-		fi
-		
-		echo "$@"
-		exit 99
-		
-		#  --acls --xattrs --fake-super
-		/usr/bin/env -i "$rsync_path" -v --archive --hard-links --whole-file --one-file-system --sparse --checksum-seed="$(secure_signed_32_bit_random_number)" "$@" "$copy_from_folder_path"/ "$backup_to_folder_path"/
-	
 	done <"$folder_paths_file"
+	
+	rm "$folder_paths_file"
 }
 
-depends mkdir
-set_configuration_folder_paths()
+configure()
 {
-	cd ~ 1>/dev/null 2>/dev/null
-		configuration_folder_path="$(pwd)"/.os-x-backup
-	cd - 1>/dev/null 2>/dev/null
+	local use_rsync='false'
+	local backup_kind='copy_dest'
+	local remote='remote'
+	local remote_path_prefix='backups'
 	
-	volume_configuration_folder_path="$configuration_folder_path"
-	set +e
-		mkdir -m 0500 -p "$volume_configuration_folder_path" 1>/dev/null 2>/dev/null
-	set -e
+	local configuration_file_path="$configuration_folder_path"/configuration.sh
+	local is_usable
+	folder_is_usable "$configuration_file_path"
+	if $is_usable; then
+		. "$configuration_file_path" || exit_configuration_message "Could not load configuration at $configuration_file_path"
+	fi
+
+	case "$use_rsync" in
+		true|false)
+			configured_use_rsync="$use_rsync"
+		;;
+		
+		*)
+			exit_configuration_message "use_rsync can only be true or false, not $use_rsync"
+		;;
+	esac
+	
+
+	case "$backup_kind" in
+		full|replaced|copy_dest|differential|incremental)
+			configured_backup_kind="$backup_kind"
+		;;
+		
+		link_dest)
+			if ! $use_rsync; then
+				exit_configuration_message  "backup_kind can not be 'link_dest' if use_rsync='false'"
+			fi
+			configured_backup_kind='link_dest'
+		;;
+		
+		*)
+			exit_configuration_message "backup_kind can not be '$backup_kind'"
+		;;
+	esac
+
+	local remote_path_prefix_is_absolute
+	if [ "$(first_character "$remote_path_prefix")" = '/' ]; then
+		remote_path_prefix_is_absolute=true
+	else
+		remote_path_prefix_is_absolute=false
+	fi
+	if [ "$(last_character "$remote_path_prefix")" = '/' ]; then
+		exit_configuration_message "remote_path_prefix can not end with a trailing slash '/'"
+	fi
+	configured_remote_path_prefix="$remote_path_prefix"
+	
+	case "$(last_character "$remote")" in
+		
+		':')
+			exit_configuration_message "remotes ending with a trailing colon ':' are not supported"
+		;;
+		
+		'/')
+			exit_configuration_message "remotes ending with a trailing slash '/' are not supported"
+		;;
+		
+		*)
+			:
+		;;
+		
+	esac
+	case "$(first_character "$remote")" in
+		
+		':')
+			exit_configuration_message "remotes starting with a leading colon ':' are not supported"
+		;;
+		
+		'')
+			if $remote_path_prefix_is_absolute; then
+				exit_configuration_message "If remote is empty (remote='') then remote_path_prefix must not be absolute (ie it must not start with a leading slash '/'))"
+			fi
+			configured_remote="$(pwd)"
+			configured_remote_suffix='/'
+		;;
+		
+		'/')
+			if $remote_path_prefix_is_absolute; then
+				exit_configuration_message "If remote starts with a leading slash (remote='/..') then remote_path_prefix must not be absolute (ie it must not start start with a leading slash '/'))"
+			fi
+			configured_remote="$remote"
+			configured_remote_suffix='/'
+		;;
+		
+		*)
+			configured_remote="$remote"
+			configured_remote_suffix=':'
+		;;
+		
+	esac
+}
+
+set_rclone_or_rsync_environment_file_path()
+{
+	if $configured_use_rsync; then
+		configured_rclone_or_rsync_environment_file_path="$configuration_folder_path"/rsync.environment.sh
+	else
+		configured_rclone_or_rsync_environment_file_path="$configuration_folder_path"/rclone.environment.sh
+	fi
+}
+
+depends hostname awk tr
+configure_machine_name()
+{
+	configured_machine_name="$(hostname | awk -F. '{print $1}' | tr '[:upper:]' '[:lower:]')"
 }
 
 main()
 {
+	local configuration_folder_path
+	set_configuration_folder_path
+
+	local tools_folder_path="$(pwd)"/tools
+
+	local configured_use_rsync
+	local configured_backup_kind
+	local remote_path_prefix_is_absolute
+	local configured_remote
+	local configured_remote_suffix
+	local configured_remote_path_prefix
+	configure
+
+	local configured_rclone_or_rsync_environment_file_path
+	set_rclone_or_rsync_environment_file_path
+	
+	local configured_password='Hello'
+	local configured_salt='Mum'
+	
 	local temporary_folder_path="$(pwd)"/temporary
 	make_temporary_folder
 	
-	local configuration_folder_path
-	local volume_configuration_folder_path
-	set_configuration_folder_paths
+	local rclone_temporary_configuration_file_path="$TMPDIR"/rclone.conf
+	rclone_refresh_temporary_configuration_file
+	
+	local configured_obscured_password="$(rclone_obscure_password configured_password)"
+	local configured_obscured_salt="$(rclone_obscure_password configured_salt)"
+	
+	local configured_machine_name
+	configure_machine_name
 	
 	make_our_backup_folder
-	
-		make_and_use_snapshots some_callback 'hello'
+		
+		make_and_use_snapshots make_backup_of_mount "$configured_remote" "$configured_use_rsync" "$configured_backup_kind"
 	
 	remove_our_backup_folder
+	
+	# TODO: Store our configuration (except for rclone.conf and the like) on a remote server.
+	# TODO: Update our configuration from a remote server.
+	
+	# TODO: Implement alternate backup-dir approach that renames files and ignores them.
+	# TODO: Implement a restore
+	# TODO: Implement generation of initial configuration (simple, for me)
+	
+	# TODO: Ask rsync.net if possible to force snapshots?
+	# TODO: Ask rsync.net if size limits include duplicated data? (ie is it deduplicated size, can I force deduplication to run?)
+	
+	# TODO: rclone --immutable flag
+	
 }
 
 main "$@"
-
-

@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/sh
 # This file is part of os-x-backup. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT. No part of os-x-backup, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
 # Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
 
@@ -106,23 +106,25 @@ _program_path_find()
 cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
 
 cd "$(pwd)"/..
-_program_name='rclone'
-. functions/common.sh
-. functions/rclone.sh
+_program_name='environment-wrapper'
 
+. functions/common.sh
+
+depends env
 main()
 {
-	set_rclone_root_path
+	local environment_file_path="$1"
+	local executable="$2"
+	shift 2
 	
-	local rclone_parent_path
-	set_rclone_parent_path
-	
-	local rclone_binary_path="$rclone_parent_path"/rclone
-	if [ ! -x "$rclone_binary_path" ]; then
-		./download-rclone
+	local is_usable
+	file_is_usable "$environment_file_path"
+	if $is_usable; then
+		. "$environment_file_path"
 	fi
 	
-	exec "$rclone_parent_path"/rclone "$@"
+	set -x
+	exec "$executable" "$@"
 }
 
 main "$@"

@@ -2,5 +2,8 @@
 # Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
 
 
-backups/
-temporary/
+# Contains environment variables to export to the rclone runtime.
+# By default, no environment variables are exported - not even PATH.
+
+# example
+#export RCLONE_LOCAL_NO_PREALLOCATE=true.

@@ -56,3 +56,34 @@ delete_time_machine_snapshot()
 	local time_machine_snapshot_date="$1"
 	tmutil deletelocalsnapshots "$time_machine_snapshot_date" 1>/dev/null
 }
+
+depends tmutil rm
+time_machine_is_volume_excluded()
+{
+	local volumeDevice="$1"
+	
+	local is_excluded_file_path="$TMPDIR"/is_excluded
+	tmutil isexcluded "$volumeDevice" >"$is_excluded_file_path"
+	
+	local state
+	local path
+	IFS=' ' read -r state path <"$is_excluded_file_path"
+	
+	case "$state" in
+		
+		'[Excluded]')
+			is_excluded='true'
+		;;
+		
+		'[Included]')
+			is_excluded='false'
+		;;
+		
+		*)
+			is_excluded='false'
+		;;
+		
+	esac
+	
+	rm "$is_excluded_file_path"
+}

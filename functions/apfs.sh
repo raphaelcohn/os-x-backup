@@ -2,5 +2,8 @@
 # Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
 
 
-backups/
-temporary/
+depends mount awk
+find_apfs_mounts()
+{
+	mount -t apfs | awk -F ' ' '{print $1,$3}'
+}

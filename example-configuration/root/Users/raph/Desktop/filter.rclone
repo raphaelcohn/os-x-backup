@@ -1,0 +1,37 @@
+- .DS_Store
+- .localized
+- /.cache/**
+- /.cargo/**
+- /.config/**
+- /.cpan/**
+- /.docker/**
+- /.dotfiles/**
+- /.eclipse/**
+- /.gem/**
+- /.ghc/**
+- /.go/**
+- /.heroku/**
+- /.intel/**
+- /.kodi/**
+- /.lldb/**
+- /.local/**
+- /.luaver/**
+- /.markdownNavigator/**
+- /.npm/**
+- /.rustup/**
+- /.shared-ringdb/**
+- /.stack/**
+- /.subversion/**
+- /.swaddle/**
+- /.vscode/**
+- /.xargo/**
+- /.yjp/**
+- /.*
+- /Applications (Parallels)/**
+- /Documents/Parallels/**
+- /Library/**
+
+# .ssh
+# .gnupg
+
+
