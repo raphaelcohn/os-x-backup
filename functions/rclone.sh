@@ -148,8 +148,6 @@ set_rclone_parent_path()
 
 _rclone_command()
 {
-	cat "$rclone_temporary_configuration_file_path" 1>&2
-	
 	# Set generic flags
 	# Passwords and interaction
 	# Retries flags
@@ -218,9 +216,10 @@ rclone_list()
 	local leading_slash="$2"
 	local trailing_folder_slash="$3"
 	local recursive="$4"
+	shift 4
 	
 	_rclone_command \
-		--format "$format" --separator $'\t' --absolute="$leading_slash" --dir-slash="$trailing_folder_slash" --recursive="$recursive" \
+		lsf --format "$format" --separator $'\t' --absolute="$leading_slash" --dir-slash="$trailing_folder_slash" --recursive="$recursive" \
 		"$@"
 }
 

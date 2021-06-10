@@ -70,7 +70,6 @@ remote_path()
 	if $configured_use_rsync; then
 		printf '%s/' "$full_remote_path"
 	else
-		printf '%s\n' "${configured_remote}${configured_remote_suffix}${full_remote_path}" 1>&2
 		rclone_create_encrypted_remote "$alias_remote_name" "$full_remote_path"
 		printf ''
 	fi
@@ -200,9 +199,6 @@ rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_increm
 	local most_recent
 	rclone_most_recent_folder "$(prefix_remote_path "$remote_folder_path")"
 	local previous_full_back_up_time_machine_snapshot_date="$most_recent"
-	
-	# TODO: We are not identifying the previous backup correctly.
-	xxxxx
 	
 	if [ -z "$previous_full_back_up_time_machine_snapshot_date" ]; then
 		rclone_or_rsync_full_back_up "$our_mount_name" "$source_folder_path" "$relative_path_under_mount_to_synchronize"
