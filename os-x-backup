@@ -113,6 +113,7 @@ _program_name='os-x-backup'
 . functions/rclone.sh
 . functions/remote-backup.sh
 . functions/rsync.sh
+. functions/security.sh
 . functions/time-machine.sh
 
 set_mount_point_folder_path()
@@ -310,16 +311,22 @@ make_backup_of_mount()
 		;;
 		
 		replaced)
-			set -- rclone_or_rsync_replaced_back_up "$our_mount_name" "$mount_point_folder_path"
+			exit_configuration_message 'replaced back ups have problems with encrypted paths'
+			#set -- rclone_or_rsync_replaced_back_up "$our_mount_name" "$mount_point_folder_path"
 		;;
-		
-		copy_dest|differential)
+	
+		copy_dest)
 			set -- rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_incremental_backup "$our_mount_name" "$mount_point_folder_path" "$backup_kind"
 		;;
 		
 		link_dest)
 			guard_link_dest_is_use_rsync "$use_rsync"
 			set -- rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_incremental_backup "$our_mount_name" "$mount_point_folder_path" 'link_dest'
+		;;
+		
+		differential)
+			exit_configuration_message 'differential back ups have problems with encrypted paths'
+			#set -- rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_incremental_backup "$our_mount_name" "$mount_point_folder_path" "$backup_kind"
 		;;
 	
 		incremental)
@@ -462,8 +469,117 @@ configure_machine_name()
 	configured_machine_name="$(hostname | awk -F. '{print $1}' | tr '[:upper:]' '[:lower:]')"
 }
 
+configure_password_and_salt()
+{
+	local password
+	
+	security_get_or_create_password true
+	local configured_password="$password"
+	
+	security_get_or_create_password false
+	local configured_salt="$password"
+	
+	configured_obscured_password="$(rclone_obscure_password "$configured_password")"
+	configured_obscured_salt="$(rclone_obscure_password "$configured_salt")"
+}
+
+ensure_rclone_downloaded()
+{
+	"$(pwd)"/download-rclone
+}
+
+verb_backup()
+{
+	local configured_obscured_password
+	local configured_obscured_salt
+	configure_password_and_salt
+
+	make_our_backup_folder
+
+		make_and_use_snapshots make_backup_of_mount "$configured_remote" "$configured_use_rsync" "$configured_backup_kind"
+
+	remove_our_backup_folder
+
+	# TODO: Store our configuration (except for rclone.conf and the like) on a remote server.
+	# TODO: Update our configuration from a remote server.
+	
+	
+	# TODO: Implement a restore
+	# TODO: Implement generation of initial configuration (simple, for me)
+
+	# TODO: Ask rsync.net if size limits include duplicated data? (ie is it deduplicated size, can I force deduplication to run?)
+
+	# TODO: rclone --immutable flag
+}
+
+verb_delete_encryption_passwords()
+{
+	security_delete_password true
+	security_delete_password false
+}
+
+execute_verb()
+{
+	case "$verb" in
+			
+		backup)
+			verb_backup "$@"
+		;;
+		
+		delete_encryption_passwords)
+			verb_delete_encryption_passwords "$@"
+		;;
+		
+		*)
+			exit_usage_message "The verb '$verb' is not known"
+		;;
+		
+	esac
+}
+
+guard_arguments()
+{
+	usage_message="Specify $_program_name <verb>, where <verb> is one of the following:-
+	help							displays this help
+	backup							performs a backup
+	delete_encryption_passwords		deletes remote encryption passwords
+	
+	For convenience, -h, -help and --help are also interpreted as aliases the <verb> 'help'.
+	
+	Environment Variables
+	OS_X_CONFIGURATION_FOLDER_PATH	Overrides the location of the configuration folder (by default, /.config/os-x-backup).
+"
+	case $# in
+		
+		0)
+			exit_usage_message "$usage_message"
+		;;
+		
+		*)
+			verb="$1"
+			shift 1
+			case "$verb" in
+				
+				help|-h|-help|--help)
+					exit_help_message "$usage_message"
+				;;
+				
+				*)
+					:
+				;;
+				
+			esac
+		;;
+		
+	esac
+}
+
 main()
 {
+	local verb
+	guard_arguments "$@"
+	shift 1
+	
 	local configuration_folder_path
 	set_configuration_folder_path
 
@@ -480,39 +596,15 @@ main()
 	local configured_rclone_or_rsync_environment_file_path
 	set_rclone_or_rsync_environment_file_path
 	
-	local configured_password='Hello'
-	local configured_salt='Mum'
-	
 	local temporary_folder_path="$(pwd)"/temporary
 	make_temporary_folder
 	
 	local rclone_temporary_configuration_file_path="$TMPDIR"/rclone.conf
-	rclone_refresh_temporary_configuration_file
-	
-	local configured_obscured_password="$(rclone_obscure_password configured_password)"
-	local configured_obscured_salt="$(rclone_obscure_password configured_salt)"
-	
+		
 	local configured_machine_name
 	configure_machine_name
 	
-	make_our_backup_folder
-		
-		make_and_use_snapshots make_backup_of_mount "$configured_remote" "$configured_use_rsync" "$configured_backup_kind"
-	
-	remove_our_backup_folder
-	
-	# TODO: Store our configuration (except for rclone.conf and the like) on a remote server.
-	# TODO: Update our configuration from a remote server.
-	
-	# TODO: Implement alternate backup-dir approach that renames files and ignores them.
-	# TODO: Implement a restore
-	# TODO: Implement generation of initial configuration (simple, for me)
-	
-	# TODO: Ask rsync.net if possible to force snapshots?
-	# TODO: Ask rsync.net if size limits include duplicated data? (ie is it deduplicated size, can I force deduplication to run?)
-	
-	# TODO: rclone --immutable flag
-	
+	execute_verb "$@"
 }
 
 main "$@"

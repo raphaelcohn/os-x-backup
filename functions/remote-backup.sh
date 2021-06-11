@@ -28,21 +28,21 @@ remote_path_only()
 	
 	# eg '' or "$time_machine_snapshot_date" or "$previous_full_back_up_time_machine_snapshot_date"/"$differential_backup_time_machine_snapshot_date"
 	local backup_specific="$4"
-
-	# NOTE: It could be argued that "$configured_machine_name" is sensitive information.
-	# For example, a listing of "$configured_machine_name" would allow a hacker to enumerate the machines in the network.
-	local path_prefix="$backup_variant"/"$configured_machine_name"/"$our_mount_name"
-	local path_suffix="$relative_path_under_mount_to_synchronize"
+	
 	local partial_remote_path
 	if [ -n "$backup_specific" ]; then
-		partial_remote_path="$path_prefix"/"$path_suffix"/"$backup_specific"
+		partial_remote_path="$configured_machine_name"/"$our_mount_name"/"$relative_path_under_mount_to_synchronize"/"$backup_specific"
 	else
-		partial_remote_path="$path_prefix"/"$path_suffix"
+		partial_remote_path="$configured_machine_name"/"$our_mount_name"/"$relative_path_under_mount_to_synchronize"
 	fi
-	
+
 	local full_remote_path
-	if [ -n "$configured_remote_path_prefix" ]; then
-		full_remote_path="$configured_remote_path_prefix"/"$partial_remote_path"
+	if $configured_use_rsync; then
+		if [ -n "$configured_remote_path_prefix" ]; then
+			full_remote_path="$configured_remote_path_prefix"/"$backup_variant"/"$partial_remote_path"
+		else
+			full_remote_path="$backup_variant"/"$partial_remote_path"
+		fi
 	else
 		full_remote_path="$partial_remote_path"
 	fi
@@ -52,33 +52,24 @@ remote_path_only()
 
 remote_path()
 {
-	local alias_remote_name="$1"
-	
-	local our_mount_name="$2"
+	local our_mount_name="$1"
 	
 	# eg 'Users/raph' (for /Users/raph) or '' (for /)
-	local relative_path_under_mount_to_synchronize="$3"
+	local relative_path_under_mount_to_synchronize="$2"
 	
 	# eg 'full' or 'replaced/current'
-	local backup_variant="$4"
+	local backup_variant="$3"
 	
 	# eg '' or "$time_machine_snapshot_date" or "$previous_full_back_up_time_machine_snapshot_date"/"$differential_backup_time_machine_snapshot_date"
-	local backup_specific="$5"
+	local backup_specific="$4"
 	
 	local full_remote_path="$(remote_path_only "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$backup_variant" "$backup_specific")"
 	
 	if $configured_use_rsync; then
 		printf '%s/' "$full_remote_path"
 	else
-		rclone_create_encrypted_remote "$alias_remote_name" "$full_remote_path"
-		printf ''
+		printf '%s' "$full_remote_path"
 	fi
-}
-
-prefix_remote_path()
-{
-	local full_remote_path="$1"
-	printf '%s' "${configured_remote}${configured_remote_suffix}${full_remote_path}"
 }
 
 set_our_mount_name_configuration_path()
@@ -117,7 +108,7 @@ _rclone_or_rsync_synchronize()
 		local rclone_filter_file_path="$filter_file_parent_folder_path"/filter.rclone
 		file_is_usable "$rclone_filter_file_path"
 		if $is_usable; then
-			set -- "$@" --filter-from "$rclone_filter_file_path"
+			set -- --filter-from "$rclone_filter_file_path" "$@"
 		fi
 		
 		rclone_sync "$@"
@@ -131,16 +122,16 @@ rclone_or_rsync_full_back_up()
 	local source_folder_path="$2"
 	local relative_path_under_mount_to_synchronize="$3"
 	
-	rclone_refresh_temporary_configuration_file
-	
 	local source_folder_path="$(transform_to_source_path "$source_folder_path" "$relative_path_under_mount_to_synchronize")"
 
-	local remote_full_folder_path="$(remote_path full "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$time_machine_snapshot_date")"
+	local remote_full_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$time_machine_snapshot_date")"
 	
 	if $configured_use_rsync; then
-		set -- "$source_folder_path" "$remote":"$remote_full_folder_path"
+		set -- "$source_folder_path" "$configured_remote":"$remote_full_folder_path"
 	else
-		set -- "$source_folder_path" full:"$remote_full_folder_path"
+		rclone_refresh_temporary_configuration_file
+		rclone_create_encrypted_remote 'encrypted' "$configured_remote_path_prefix"/full
+		set -- "$source_folder_path" 'encrypted':"$remote_full_folder_path"
 	fi
 	
 	_rclone_or_rsync_synchronize "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$@"
@@ -163,14 +154,12 @@ rclone_or_rsync_replaced_back_up()
 	local our_mount_name="$1"
 	local source_folder_path="$2"
 	local relative_path_under_mount_to_synchronize="$3"
-
-	rclone_refresh_temporary_configuration_file
 	
 	local source_folder_path="$(transform_to_source_path "$source_folder_path" "$relative_path_under_mount_to_synchronize")"
 	
-	local remote_current_folder_path="$(remote_path current "$our_mount_name" "$relative_path_under_mount_to_synchronize" current '')"
+	local remote_current_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" current '')"
 	
-	local remote_archive_folder_path="$(remote_path archive "$our_mount_name" "$relative_path_under_mount_to_synchronize" archive "$time_machine_snapshot_date")"
+	local remote_archive_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" archive "$time_machine_snapshot_date")"
 	
 	if $configured_use_rsync; then
 		local is_absolute
@@ -178,9 +167,11 @@ rclone_or_rsync_replaced_back_up()
 		if $is_absolute; then
 			remote_archive_folder_path="$(make_path_relative_to "$remote_archive_folder_path" "$remote_current_folder_path")"
 		fi
-		set -- --backup --backup-dir "$remote_archive_folder_path" "$source_folder_path" "$remote":"$remote_current_folder_path"
+		set -- --backup --backup-dir "$remote_archive_folder_path" "$source_folder_path" "$configured_remote":"$remote_current_folder_path"
 	else
-		set -- --backup-dir archive:"$remote_archive_folder_path" "$source_folder_path" current:"$remote_current_folder_path"
+		rclone_refresh_temporary_configuration_file
+		rclone_create_encrypted_remote 'encrypted' "$configured_remote_path_prefix"
+		set -- --backup-dir 'encrypted':archive/"$remote_archive_folder_path" "$source_folder_path" 'encrypted':current/"$remote_current_folder_path"
 	fi
 	_rclone_or_rsync_synchronize "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$@"
 }
@@ -191,14 +182,17 @@ rclone_or_rsync_full_then_copy_dest_or_link_dest_or_differential_or_first_increm
 	local source_folder_path="$2"
 	local backup_kind="$3"
 	local relative_path_under_mount_to_synchronize="$4"
+	
+	local previous_full_back_up_time_machine_snapshot_date
+	{
+		rclone_refresh_temporary_configuration_file
+		rclone_create_encrypted_remote 'encrypted' "$configured_remote_path_prefix"/full
+		local remote_full_folder_path="$(remote_path_only "$our_mount_name" "$relative_path_under_mount_to_synchronize" full '')"
 
-	rclone_refresh_temporary_configuration_file
-	
-	local remote_folder_path="$(remote_path_only "$our_mount_name" "$relative_path_under_mount_to_synchronize" full '')"
-	
-	local most_recent
-	rclone_most_recent_folder "$(prefix_remote_path "$remote_folder_path")"
-	local previous_full_back_up_time_machine_snapshot_date="$most_recent"
+		local most_recent
+		rclone_most_recent_folder 'encrypted':"$remote_full_folder_path"
+		previous_full_back_up_time_machine_snapshot_date="$most_recent"
+	}
 	
 	if [ -z "$previous_full_back_up_time_machine_snapshot_date" ]; then
 		rclone_or_rsync_full_back_up "$our_mount_name" "$source_folder_path" "$relative_path_under_mount_to_synchronize"
@@ -237,13 +231,11 @@ _rclone_or_rsync_full_copy_dest_or_link_dest_backup()
 	local relative_path_under_mount_to_synchronize="$3"
 	local previous_full_back_up_time_machine_snapshot_date="$4"
 	local copy_or_link="$5"
-
-	rclone_refresh_temporary_configuration_file
 	
 	local source_folder_path="$(transform_to_source_path "$source_folder_path" "$relative_path_under_mount_to_synchronize")"
 	
-	local remote_this_full_folder_path="$(remote_path full "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$time_machine_snapshot_date")"
-	local remote_previous_full_folder_path="$(remote_path previous "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$previous_full_back_up_time_machine_snapshot_date")"
+	local remote_this_full_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$time_machine_snapshot_date")"
+	local remote_previous_full_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$previous_full_back_up_time_machine_snapshot_date")"
 	
 	if $configured_use_rsync; then
 		local is_absolute
@@ -251,9 +243,11 @@ _rclone_or_rsync_full_copy_dest_or_link_dest_backup()
 		if $is_absolute; then
 			remote_previous_full_folder_path="$(make_path_relative_to "$remote_previous_full_folder_path" "$remote_this_full_folder_path")"
 		fi
-		set -- --"$copy_or_link"-dest "$remote_previous_full_folder_path" "$source_folder_path" "$remote":"$remote_this_full_folder_path"
+		set -- --"$copy_or_link"-dest "$remote_previous_full_folder_path" "$source_folder_path" "$configured_remote":"$remote_this_full_folder_path"
 	else
-		set -- --copy-dest previous:"$remote_previous_full_folder_path" "$source_folder_path" full:"$remote_this_full_folder_path"
+		rclone_refresh_temporary_configuration_file
+		rclone_create_encrypted_remote 'encrypted' "$configured_remote_path_prefix"/full
+		set -- --copy-dest 'encrypted':"$remote_previous_full_folder_path" "$source_folder_path" 'encrypted':"$remote_this_full_folder_path"
 	fi
 	_rclone_or_rsync_synchronize "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$@"
 }
@@ -265,13 +259,11 @@ _rclone_or_rsync_differential_or_first_incremental_backup()
 	local relative_path_under_mount_to_synchronize="$3"
 	local previous_full_back_up_time_machine_snapshot_date="$4"
 	local differential_or_incremental="$5"
-
-	rclone_refresh_temporary_configuration_file
 	
 	local source_folder_path="$(transform_to_source_path "$source_folder_path" "$relative_path_under_mount_to_synchronize")"
 
-	local remote_this_differential_or_first_incremental_folder_path="$(remote_path current "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$differential_or_incremental" "$previous_full_back_up_time_machine_snapshot_date"/"$time_machine_snapshot_date")"
-	local remote_previous_full_folder_path="$(remote_path previous "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$previous_full_back_up_time_machine_snapshot_date")"
+	local remote_this_differential_or_first_incremental_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$differential_or_incremental" "$previous_full_back_up_time_machine_snapshot_date"/"$time_machine_snapshot_date")"
+	local remote_previous_full_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$previous_full_back_up_time_machine_snapshot_date")"
 	
 	if $configured_use_rsync; then
 		local is_absolute
@@ -279,9 +271,11 @@ _rclone_or_rsync_differential_or_first_incremental_backup()
 		if $is_absolute; then
 			remote_previous_full_folder_path="$(make_path_relative_to "$remote_previous_full_folder_path" "$remote_this_differential_or_first_incremental_folder_path")"
 		fi
-		set -- --compare-dest "$remote_previous_full_folder_path" "$source_folder_path" "$remote":"$remote_this_differential_or_first_incremental_folder_path"
+		set -- --compare-dest "$remote_previous_full_folder_path" "$source_folder_path" "$configured_remote":"$remote_this_differential_or_first_incremental_folder_path"
 	else
-		set -- --compare-dest previous:"$remote_previous_full_folder_path" "$source_folder_path" current:"$remote_this_differential_or_first_incremental_folder_path"
+		rclone_refresh_temporary_configuration_file
+		rclone_create_encrypted_remote 'encrypted' "$configured_remote_path_prefix"
+		set -- --compare-dest 'encrypted':full/"$remote_previous_full_folder_path" "$source_folder_path" 'encrypted':"$differential_or_incremental"/"$remote_this_differential_or_first_incremental_folder_path"
 	fi
 	_rclone_or_rsync_synchronize "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$@"
 }
@@ -302,11 +296,11 @@ _rclone_or_rsync_subsequent_incremental_backup()
 	
 	local source_folder_path="$(transform_to_source_path "$source_folder_path" "$relative_path_under_mount_to_synchronize")"
 
-	local remote_current_incremental_folder_path="$(remote_path currentincremental "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$previous_full_back_up_time_machine_snapshot_date"/"$time_machine_snapshot_date")"
+	local remote_current_incremental_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" incremental "$previous_full_back_up_time_machine_snapshot_date"/"$time_machine_snapshot_date")"
 
-	local remote_previous_full_folder_path="$(remote_path previousfull "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$previous_full_back_up_time_machine_snapshot_date")"
+	local remote_previous_full_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" full "$previous_full_back_up_time_machine_snapshot_date")"
 	
-	local remote_previous_incremental_folder_path="$(remote_path previousincremental "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$previous_full_back_up_time_machine_snapshot_date"/"$previous_incremental_backup_after_first_full_back_up_time_machine_snapshot_date")"
+	local remote_previous_incremental_folder_path="$(remote_path "$our_mount_name" "$relative_path_under_mount_to_synchronize" incremental "$previous_full_back_up_time_machine_snapshot_date"/"$previous_incremental_backup_after_first_full_back_up_time_machine_snapshot_date")"
 	
 	if $configured_use_rsync; then
 		local is_absolute
@@ -315,9 +309,11 @@ _rclone_or_rsync_subsequent_incremental_backup()
 			remote_previous_full_folder_path="$(make_path_relative_to "$remote_previous_full_folder_path" "$remote_current_incremental_folder_path")"
 			remote_previous_incremental_folder_path="$(make_path_relative_to "$remote_previous_incremental_folder_path" "$remote_current_incremental_folder_path")"
 		fi
-		set -- --compare-dest "$remote_previous_full_folder_path" --compare-dest "$remote_previous_incremental_folder_path" "$source_folder_path" "$remote":"$remote_current_incremental_folder_path"
+		set -- --compare-dest "$remote_previous_full_folder_path" --compare-dest "$remote_previous_incremental_folder_path" "$source_folder_path" "$configured_remote":"$remote_current_incremental_folder_path"
 	else
-		set -- --compare-dest previousfull:"$remote_previous_full_folder_path",previousincremental:"$remote_previous_incremental_folder_path" "$source_folder_path" full:"$remote_current_incremental_folder_path"
+		rclone_refresh_temporary_configuration_file
+		rclone_create_encrypted_remote 'encrypted' "$configured_remote_path_prefix"
+		set -- --compare-dest 'encrypted':full/"$remote_previous_full_folder_path",'encrypted':incremental/"$remote_previous_incremental_folder_path" "$source_folder_path" 'encrypted':incremental/"$remote_current_incremental_folder_path"
 	fi
 	_rclone_or_rsync_synchronize "$our_mount_name" "$relative_path_under_mount_to_synchronize" "$@"
 }

@@ -3,9 +3,9 @@
 
 
 Host remote
-	HostName 10.0.0.1
+	HostName zh1572.rsync.net
 	Port 22
-	User root
+	User zh1572
 	RequestTTY no
 	ConnectionAttempts 5
 	ConnectTimeout 15

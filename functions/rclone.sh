@@ -146,6 +146,7 @@ set_rclone_parent_path()
 	rclone_parent_path="$rclone_root_path"/current/"$rclone_operating_system"/"$rclone_architecture"
 }
 
+depends rm
 _rclone_command()
 {
 	# Set generic flags
@@ -155,12 +156,14 @@ _rclone_command()
 	# TLS authentication --ca-cert x --client-cert x --client-key x
 #		--syslog --syslog-facility DAEMON --log-level NOTICE \
 	set -- \
-		--verbose --config "$rclone_temporary_configuration_file_path" --use-mmap --cache-dir "$TMPDIR"/rclone \
+		--quiet --config "$rclone_temporary_configuration_file_path" --use-mmap --cache-dir "$TMPDIR"/rclone \
 		--auto-confirm --progress=false --progress-terminal-title=false \
 		--low-level-retries 10 --retries 5 --retries-sleep 500ms \
 		"$@"
 	
 	run_in_new_environment rclone "$tools_folder_path"/rclone "$@"
+	# Done as it can contain sensitive passwords.
+	rm "$rclone_temporary_configuration_file_path"
 }
 
 rclone_sync_copy_or_move()
@@ -193,6 +196,8 @@ rclone_move()
 
 rclone_obscure_password()
 {
+	rclone_refresh_temporary_configuration_file
+	
 	local password="$1"
 	printf '%s' "$password" | _rclone_command obscure password 2>/dev/null
 }
@@ -234,21 +239,10 @@ rclone_list_folders()
 	rclone_list "$format" "$leading_slash" "$trailing_folder_slash" "$recursive" --dirs-only "$@"
 }
 
-depends head rm
-rclone_most_recent_folder()
-{
-	local sorted_remote_backup_folders_list_file_path
-	rclone_sorted_remote_backup_folders "$remote_folder_path"
-	
-	most_recent="$(head -n 1 "$sorted_remote_backup_folders_list_file_path")"
-	
-	rm "$sorted_remote_backup_folders_list_file_path"
-}
-
 depends sort rm
 rclone_sorted_remote_backup_folders()
 {
-	local remote_folder_path="$1"
+	local remote_and_folder_path="$1"
 	
 	local unsorted_remote_backup_folders_list_file_path="$TMPDIR"/unsorted-remote-backups-folders.list
 	sorted_remote_backup_folders_list_file_path="$TMPDIR"/sorted-remote-backups-folders.list
@@ -256,12 +250,25 @@ rclone_sorted_remote_backup_folders()
 	printf '' >"$unsorted_remote_backup_folders_list_file_path"
 	set +e
 		# If remote folder path missing, fails with exit code 3.
-		rclone_list_folders 'p' false false false "$remote_folder_path" 2>/dev/null >>"$unsorted_remote_backup_folders_list_file_path"
+		rclone_list_folders 'p' false false false "$remote_and_folder_path" 2>/dev/null >>"$unsorted_remote_backup_folders_list_file_path"
 	set -e
 	
 	sort -u -r "$unsorted_remote_backup_folders_list_file_path" >"$sorted_remote_backup_folders_list_file_path"
 	
 	rm "$unsorted_remote_backup_folders_list_file_path"
+}
+
+depends head rm
+rclone_most_recent_folder()
+{
+	local remote_and_folder_path="$1"
+	
+	local sorted_remote_backup_folders_list_file_path
+	rclone_sorted_remote_backup_folders "$remote_and_folder_path"
+	
+	most_recent="$(head -n 1 "$sorted_remote_backup_folders_list_file_path")"
+	
+	rm "$sorted_remote_backup_folders_list_file_path"
 }
 
 depends rm cp
@@ -292,13 +299,19 @@ rclone_refresh_temporary_configuration_file()
 	cp "$rclone_configuration_file_path" "$rclone_temporary_configuration_file_path"
 }
 
+rclone_prefix_remote_path()
+{
+	local full_remote_path="$1"
+	printf '%s' "${configured_remote}${configured_remote_suffix}${full_remote_path}"
+}
+
 depends cat
 rclone_create_encrypted_remote()
 {
 	local remote_name="$1"
 	local full_remote_path="$2"
 	
-	local remote="$(prefix_remote_path "$full_remote_path")"
+	local remote="$(rclone_prefix_remote_path "$full_remote_path")"
 	cat >>"$rclone_temporary_configuration_file_path" <<-EOF
 		[${remote_name}]
 		type = crypt
