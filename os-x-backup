@@ -239,7 +239,7 @@ iterate_over_time_machine_volumes()
 		local is_excluded
 		time_machine_is_volume_excluded "$volumeDevice"
 		if $is_excluded; then
-			printf "Excluding %s\n" "$volumeDevice" 1>&2
+			printf "Excluding as not backed up by Time Machine %s\n" "$volumeDevice" 1>&2
 			continue
 		fi
 		
@@ -356,104 +356,6 @@ make_backup_of_mount()
 	rm "$folder_paths_file"
 }
 
-configure()
-{
-	local use_rsync='false'
-	local backup_kind='copy_dest'
-	local remote='remote'
-	local remote_path_prefix='backups'
-	
-	local configuration_file_path="$configuration_folder_path"/configuration.sh
-	local is_usable
-	folder_is_usable "$configuration_file_path"
-	if $is_usable; then
-		. "$configuration_file_path" || exit_configuration_message "Could not load configuration at $configuration_file_path"
-	fi
-
-	case "$use_rsync" in
-		true|false)
-			configured_use_rsync="$use_rsync"
-		;;
-		
-		*)
-			exit_configuration_message "use_rsync can only be true or false, not $use_rsync"
-		;;
-	esac
-	
-
-	case "$backup_kind" in
-		full|replaced|copy_dest|differential|incremental)
-			configured_backup_kind="$backup_kind"
-		;;
-		
-		link_dest)
-			if ! $use_rsync; then
-				exit_configuration_message  "backup_kind can not be 'link_dest' if use_rsync='false'"
-			fi
-			configured_backup_kind='link_dest'
-		;;
-		
-		*)
-			exit_configuration_message "backup_kind can not be '$backup_kind'"
-		;;
-	esac
-
-	local remote_path_prefix_is_absolute
-	if [ "$(first_character "$remote_path_prefix")" = '/' ]; then
-		remote_path_prefix_is_absolute=true
-	else
-		remote_path_prefix_is_absolute=false
-	fi
-	if [ "$(last_character "$remote_path_prefix")" = '/' ]; then
-		exit_configuration_message "remote_path_prefix can not end with a trailing slash '/'"
-	fi
-	configured_remote_path_prefix="$remote_path_prefix"
-	
-	case "$(last_character "$remote")" in
-		
-		':')
-			exit_configuration_message "remotes ending with a trailing colon ':' are not supported"
-		;;
-		
-		'/')
-			exit_configuration_message "remotes ending with a trailing slash '/' are not supported"
-		;;
-		
-		*)
-			:
-		;;
-		
-	esac
-	case "$(first_character "$remote")" in
-		
-		':')
-			exit_configuration_message "remotes starting with a leading colon ':' are not supported"
-		;;
-		
-		'')
-			if $remote_path_prefix_is_absolute; then
-				exit_configuration_message "If remote is empty (remote='') then remote_path_prefix must not be absolute (ie it must not start with a leading slash '/'))"
-			fi
-			configured_remote="$(pwd)"
-			configured_remote_suffix='/'
-		;;
-		
-		'/')
-			if $remote_path_prefix_is_absolute; then
-				exit_configuration_message "If remote starts with a leading slash (remote='/..') then remote_path_prefix must not be absolute (ie it must not start start with a leading slash '/'))"
-			fi
-			configured_remote="$remote"
-			configured_remote_suffix='/'
-		;;
-		
-		*)
-			configured_remote="$remote"
-			configured_remote_suffix=':'
-		;;
-		
-	esac
-}
-
 set_rclone_or_rsync_environment_file_path()
 {
 	if $configured_use_rsync; then
@@ -503,11 +405,9 @@ verb_backup()
 	# TODO: Store our configuration (except for rclone.conf and the like) on a remote server.
 	# TODO: Update our configuration from a remote server.
 	
-	
 	# TODO: Implement a restore
-	# TODO: Implement generation of initial configuration (simple, for me)
-
-	# TODO: Ask rsync.net if size limits include duplicated data? (ie is it deduplicated size, can I force deduplication to run?)
+	# TODO: Implement a delete of full / older than or move to AWS glacier
+	# TODO: Implement generation of initial configuration
 
 	# TODO: rclone --immutable flag
 }
@@ -547,7 +447,7 @@ guard_arguments()
 	For convenience, -h, -help and --help are also interpreted as aliases the <verb> 'help'.
 	
 	Environment Variables
-	OS_X_CONFIGURATION_FOLDER_PATH	Overrides the location of the configuration folder (by default, /.config/os-x-backup).
+	OS_X_BACKUP_CONFIGURATION_FOLDER_PATH	Overrides the location of the configuration folder (by default, ~/.config/os-x-backup).
 "
 	case $# in
 		
@@ -587,7 +487,6 @@ main()
 
 	local configured_use_rsync
 	local configured_backup_kind
-	local remote_path_prefix_is_absolute
 	local configured_remote
 	local configured_remote_suffix
 	local configured_remote_path_prefix

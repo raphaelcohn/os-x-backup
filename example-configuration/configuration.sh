@@ -6,8 +6,6 @@
 #
 # Set this to enable the use of rsync rather than rclone.
 #
-# At the time this configuration file is run, use_rsync is unset.
-#
 # Valid values are 'true' or 'false'
 # Default value is 'false'.
 #
@@ -23,8 +21,6 @@
 #
 # Type of backup to perform.
 #
-# At the time this configuration file is run, backup_kind is unset.
-#
 # Valid values are 'full', 'replaced', 'copy_dest', 'link_dest', 'differential' or 'incremental'.
 #
 # Default value is 'copy_dest'.
@@ -37,8 +33,6 @@
 # remote
 #
 # Override the remote in use.
-#
-# At the time this configuration file is run, remote is unset.
 #
 # Valid values are one of:-
 #
@@ -60,8 +54,6 @@
 # remote_path_prefix
 #
 # A path to prefix before synchronizing.
-#
-# At the time this configuration file is run, remote_path_prefix is unset.
 #
 # Default value is 'backups'.
 #

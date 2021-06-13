@@ -30,12 +30,9 @@ Host *
 	HashKnownHosts yes
 	StrictHostKeyChecking yes
 	UpdateHostKeys yes
-	UserKnownHostsFile ~/.ssh/known_hosts,~/.ssh/known_hosts2
+	UserKnownHostsFile ~/.config/os-x-backup/known_hosts
 	#RevokedHostKeys FILE
-	IdentityFile ~/.ssh/id_rsa
-	IdentityFile ~/.ssh/id_dsa
-	IdentityFile ~/.ssh/id_ecdsa
-	IdentityFile ~/.ssh/id_ed25519
+	IdentityFile ~/.config/os-x-backup/id_ed25519
 	IdentitiesOnly yes
 	#IdentityAgent ?
 	CheckHostIP no

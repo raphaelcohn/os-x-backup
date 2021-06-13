@@ -287,19 +287,61 @@ singleton_instance_lock()
 	trap remove_single_instance_lock_folder_path EXIT
 }
 
+depends find chmod
+lockdown_folder()
+{
+	local folder_path="$1"
+	set +e
+		find -P "$folder_path" -type d -exec chmod 0500 {} \;
+		if [ $? -ne 0 ]; then
+			exit_permission_message "Could not lock down path $folder_path"
+		fi
+		
+		find -P "$folder_path" -type f -exec chmod 0400 {} \;
+		if [ $? -ne 0 ]; then
+			exit_permission_message "Could not lock down path $folder_path"
+		fi
+	set -e
+}
+
+depends find chmod
+lockdown_configuration()
+{
+	set +e
+		find -P "$configuration_folder_path" -type d -exec chmod 0500 {} \;
+		if [ $? -ne 0 ]; then
+			exit_permission_message "Could not lock down configuration folder $configuration_folder_path"
+		fi
+		
+		find -P "$configuration_folder_path" -type f -exec chmod 0400 {} \;
+		if [ $? -ne 0 ]; then
+			exit_permission_message "Could not lock down configuration folder $configuration_folder_path"
+		fi
+	set -e
+}
+
+depends mkdir
 set_configuration_folder_path()
 {
-	if [ -n "${OS_X_CONFIGURATION_FOLDER_PATH+set}" ]; then
-		cd "$OS_X_CONFIGURATION_FOLDER_PATH" 1>/dev/null 2>/dev/null
+	if [ -n "${OS_X_BACKUP_CONFIGURATION_FOLDER_PATH+set}" ]; then
+		
+		local is_usable "$OS_X_BACKUP_CONFIGURATION_FOLDER_PATH"
+		folder_is_usable
+		if ! $is_usable; then
+			exit_configuration_message "The configuration folder path overridden by OS_X_BACKUP_CONFIGURATION_FOLDER_PATH ('$OS_X_BACKUP_CONFIGURATION_FOLDER_PATH') is not usable"
+		fi
+		
+		cd "$OS_X_BACKUP_CONFIGURATION_FOLDER_PATH" 1>/dev/null 2>/dev/null
 			configuration_folder_path="$(pwd)"
 		cd - 1>/dev/null 2>/dev/null
-		unset OS_X_CONFIGURATION_FOLDER_PATH
+		unset OS_X_BACKUP_CONFIGURATION_FOLDER_PATH
 	else
 		cd ~ 1>/dev/null 2>/dev/null
 			configuration_folder_path="$(pwd)"/.config/os-x-backup
 		cd - 1>/dev/null 2>/dev/null
 	fi
-	exit_if_folder_missing "$configuration_folder_path"
+	mkdir -m 0500 -p "$configuration_folder_path"
+	lockdown_folder "$configuration_folder_path"
 }
 
 run_in_new_environment()
@@ -333,4 +375,102 @@ is_absolute_path()
 	else
 		is_absolute=false
 	fi
+}
+
+configure()
+{
+	local use_rsync='false'
+	local backup_kind='copy_dest'
+	local remote='remote'
+	local remote_path_prefix='backups'
+	
+	local configuration_file_path="$configuration_folder_path"/configuration.sh
+	local is_usable
+	folder_is_usable "$configuration_file_path"
+	if $is_usable; then
+		. "$configuration_file_path" || exit_configuration_message "Could not load configuration at $configuration_file_path"
+	fi
+
+	case "$use_rsync" in
+		true|false)
+			configured_use_rsync="$use_rsync"
+		;;
+		
+		*)
+			exit_configuration_message "use_rsync can only be true or false, not $use_rsync"
+		;;
+	esac
+	
+
+	case "$backup_kind" in
+		full|replaced|copy_dest|differential|incremental)
+			configured_backup_kind="$backup_kind"
+		;;
+		
+		link_dest)
+			if ! $use_rsync; then
+				exit_configuration_message  "backup_kind can not be 'link_dest' if use_rsync='false'"
+			fi
+			configured_backup_kind='link_dest'
+		;;
+		
+		*)
+			exit_configuration_message "backup_kind can not be '$backup_kind'"
+		;;
+	esac
+
+	local remote_path_prefix_is_absolute
+	if [ "$(first_character "$remote_path_prefix")" = '/' ]; then
+		remote_path_prefix_is_absolute=true
+	else
+		remote_path_prefix_is_absolute=false
+	fi
+	if [ "$(last_character "$remote_path_prefix")" = '/' ]; then
+		exit_configuration_message "remote_path_prefix can not end with a trailing slash '/'"
+	fi
+	configured_remote_path_prefix="$remote_path_prefix"
+	
+	case "$(last_character "$remote")" in
+		
+		':')
+			exit_configuration_message "remotes ending with a trailing colon ':' are not supported"
+		;;
+		
+		'/')
+			exit_configuration_message "remotes ending with a trailing slash '/' are not supported"
+		;;
+		
+		*)
+			:
+		;;
+		
+	esac
+	case "$(first_character "$remote")" in
+		
+		':')
+			exit_configuration_message "remotes starting with a leading colon ':' are not supported"
+		;;
+		
+		'')
+			if $remote_path_prefix_is_absolute; then
+				exit_configuration_message "If remote is empty (remote='') then remote_path_prefix must not be absolute (ie it must not start with a leading slash '/'))"
+			fi
+			configured_remote="$(pwd)"
+			configured_remote_suffix='/'
+		;;
+		
+		'/')
+			if $remote_path_prefix_is_absolute; then
+				exit_configuration_message "If remote starts with a leading slash (remote='/..') then remote_path_prefix must not be absolute (ie it must not start start with a leading slash '/'))"
+			fi
+			configured_remote="$remote"
+			configured_remote_suffix='/'
+		;;
+		
+		*)
+			configured_remote="$remote"
+			configured_remote_suffix=':'
+		;;
+		
+	esac
 }

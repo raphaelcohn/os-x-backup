@@ -1,0 +1,326 @@
+#!/usr/bin/env sh
+# This file is part of os-x-backup. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT. No part of os-x-backup, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+_program_path_find()
+{
+	if [ "${0%/*}" = "$0" ]; then
+
+		# We've been invoked by the interpreter as, say, bash program
+		if [ -r "$0" ]; then
+			pwd -P
+		# Clutching at straws; probably run via a download, anonymous script, etc, weird execve, etc
+		else
+			printf '\n'
+		fi
+
+	else
+
+		# We've been invoked with a relative or absolute path (also when invoked via PATH in a shell)
+
+		_program_path_find_parentPath()
+		{
+			parentPath="${scriptPath%/*}"
+			if [ -z "$parentPath" ]; then
+				parentPath='/'
+			fi
+			cd "$parentPath" 1>/dev/null
+		}
+
+		# pdksh / mksh have problems with unsetting a variable that was never set...
+		if [ "${CDPATH+set}" = 'set' ]; then
+			unset CDPATH
+		fi
+
+		if command -v realpath 1>/dev/null 2>/dev/null; then
+			(
+				scriptPath="$(realpath "$0")"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		elif command -v readlink 1>/dev/null 2>/dev/null; then
+			(
+				local recursionDepth=0
+				_program_path_resolve_symlinks_recursively()
+				{
+					local unresolvedPath="$1"
+					
+					recursionDepth=$((recursionDepth + 1))
+					
+					if [ $recursionDepth -gt 10 ]; then
+						printf '%s\n' 'Recursion to depths greater than 10 is not allowed when resolving links.'
+						return 1
+					fi
+					
+					local potentialLinkDestination="$(readlink -- "$unresolvedPath")"
+					
+					if [ -z "$potentialLinkDestination" ]; then
+						scriptPath="$unresolvedPath"
+						return 0
+					fi
+					local linkDestination="$potentialLinkDestination"
+					local parentFolderPath="${unresolvedPath%/*}"
+					
+					if [ "$parentFolderPath" = "$unresolvedPath" ]; then
+						_program_path_resolve_symlinks_recursively "$linkDestination"
+					else
+						case "$linkDestination" in
+								
+							/*)
+								_program_path_resolve_symlinks_recursively "$linkDestination"
+							;;
+							
+							*)
+								_program_path_resolve_symlinks_recursively "$parentFolderPath"/"$linkDestination"
+							;;
+							
+						esac
+					fi
+				}
+
+				scriptPath="$0"
+				_program_path_resolve_symlinks_recursively "$scriptPath"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		else
+			# This approach will fail in corner cases where the script itself is a symlink in a path not parallel with the concrete script
+			(
+				scriptPath="$0"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		fi
+
+	fi
+}
+
+cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
+
+cd "$(pwd)"/..
+_program_name='create-and-install-ssh-key'
+. functions/common.sh
+. functions/rclone.sh
+
+depends ssh-keygen
+_generate_key()
+{
+	local comment="$1"
+	local private_key_file_name="$2"
+	
+	printf 'Please entry a password for a new %s key\n' "$comment"
+	ssh-keygen -q -t "$key_type" -C "$comment" -f "$TMPDIR"/"$private_key_file_name" 1>/dev/null
+}
+
+generate_user_key()
+{
+	_generate_key "$host (User $user)" "$private_key_file_name"
+}
+
+generate_certificate_authority_key()
+{
+	_generate_key "$host (Certificate Authority)" "$certificate_authority_private_key_file_name"
+}
+
+depends chmod rm mv
+install_file_securely()
+{
+	local to_folder_path="$1"
+	local key_file_name="$2"
+
+	chmod 0700 "$to_folder_path"
+		local to_file_path="$to_folder_path"/"$key_file_name"
+		set +e
+			chmod 0600 "$to_file_path" 2>/dev/null
+		set -e
+		rm -rf "$to_file_path"
+	
+		local from_file_path="$TMPDIR"/"$key_file_name"
+		chmod 0400 "$from_file_path"
+
+		mv -f "$from_file_path" "$to_folder_path"
+	chmod 0500 "$to_folder_path"
+}
+
+depends chmod
+read_and_update_serial_number()
+{
+	local file_path="$certificate_authority_folder_path"/"$certificate_authority_next_serial_number_file_name"
+	
+	our_serial_number="$(< "$file_path")"
+	local next_serial_number=$((our_serial_number + 1))
+	
+	chmod 0600 "$file_path"
+		printf '%s' "$next_serial_number" >"$file_path"
+	chmod 0400 "$file_path"
+}
+
+generate_user_certificate()
+{
+	local key_identity="$1"
+	shift 1
+	
+	# Completely lax: 'always:forever'
+	# Generate certificates valid from 5 seconds ago (for drift) to 52 weeks and 6 days.
+	local validity_interval='-5s:+52w6d'
+	
+	# eg zh1572
+	local principal="$user"
+	
+	if [ $# -eq 1 ]; then
+		local source_address_list_in_cidr_format="$1"
+		set -- -O source-address="$source_address_list_in_cidr_format"
+	else
+		set --
+	fi
+	
+	# -D libpcks11.so Use the certificate authority in a PKCS11 token
+	# -U Use the certificate authority key in the ssh-agent
+	
+	local our_serial_number
+	read_and_update_serial_number
+	
+	# Signs an user's public key with the certificate authority's private key
+	ssh-keygen -q -s "$certificate_authority_folder_path"/"$certificate_authority_private_key_file_name" -I "$key_identity" -V "$validity_interval" -n "$principal" -z "$our_serial_number" -O clear -O no-agent-forwarding -O no-port-forwarding -O no-pty -O no-user-rc -O no-x11-forwarding "$@" "$TMPDIR"/"$public_key_file_name"
+}
+
+generate_certificate_authority_next_serial_number()
+{
+	printf '0' >"$TMPDIR"/"$certificate_authority_next_serial_number_file_name"
+}
+
+depends cat
+generate_certificate_authority_authorized_keys_snippet()
+{
+	{
+		printf 'cert-authority,restrict '
+		cat "$TMPDIR"/"$certificate_authority_public_key_file_name"
+	} >"$TMPDIR"/"$certificate_authority_authorized_keys_snippet_file_name"
+}
+
+depends mkdir
+create_local_certificate_authority_if_missing()
+{
+	cd ~ 1>/dev/null 2>/dev/null
+		certificate_authority_folder_path="$(pwd)"/.config/os-x-backup-ssh-certificate-authority
+	cd - 1>/dev/null 2>/dev/null
+	
+	mkdir -m 0500 -p "$certificate_authority_folder_path"
+	
+	local private_file_path="$certificate_authority_folder_path"/"$certificate_authority_private_key_file_name"
+	
+	local is_usable
+	file_is_usable "$private_file_path"
+	if $is_usable; then
+		exit_if_configuration_file_missing "$certificate_authority_folder_path"/"$certificate_authority_public_key_file_name"
+		exit_if_configuration_file_missing "$certificate_authority_folder_path"/"$certificate_authority_next_serial_number_file_name"
+		exit_if_configuration_file_missing "$certificate_authority_folder_path"/"$certificate_authority_authorized_keys_snippet_file_name"
+		
+		return 0
+	fi
+	
+	generate_certificate_authority_key
+	generate_certificate_authority_next_serial_number
+	generate_certificate_authority_authorized_keys_snippet
+	
+	install_file_securely "$certificate_authority_folder_path" "$certificate_authority_public_key_file_name"
+	install_file_securely "$certificate_authority_folder_path" "$certificate_authority_private_key_file_name"
+	install_file_securely "$certificate_authority_folder_path" "$certificate_authority_next_serial_number_file_name"
+	install_file_securely "$certificate_authority_folder_path" "$certificate_authority_authorized_keys_snippet_file_name"
+	
+	certificate_authority_created=true
+}
+
+depends find chmod
+lockdown_local_certificate_authority()
+{
+	lockdown_folder "$certificate_authority_folder_path"
+}
+
+depends rm
+delete_user_public_key()
+{
+	rm "$TMPDIR"/"$public_key_file_name"
+}
+
+install_user_private_key_and_certificate()
+{
+	install_file_securely "$configuration_folder_path" "$private_key_file_name"
+	install_file_securely "$configuration_folder_path" "$certified_public_key_file_name"
+}
+
+depends ssh-add
+add_keys_to_os_x_keychain()
+{
+	ssh-add -K "$configuration_folder_path"/"$private_key_file_name"
+}
+
+depends chmod scp
+scp_certificate_authority_public_key_to_authorized_keys()
+{
+	set -x
+	chmod 0600 "$known_hosts_file"
+		printf 'Copying authorized_keys for certificate authority to host; you may be asked for a password' 1>&2
+		scp -p "$port" -o 'UserKnownHostsFile "'"$known_hosts_file"'"' "$configuration_folder_path"/"$certified_public_key_file_name" "$user"@"$host":.ssh/authorized_keys
+	chmod 0400 "$known_hosts_file"
+}
+
+main()
+{
+	local configuration_folder_path
+	set_configuration_folder_path
+
+	local configured_use_rsync
+	local configured_backup_kind
+	local configured_remote
+	local configured_remote_suffix
+	local configured_remote_path_prefix
+	configure
+	
+	local temporary_folder_path="$(pwd)"/temporary
+	make_temporary_folder
+	
+	local user
+	local host
+	local port
+	local known_hosts_file
+	rclone_read_sftp_configuration
+	
+	local key_type='ed25519'
+	
+	local certificate_authority_private_key_file_name=certificate-authority.id_"$key_type"
+	local certificate_authority_public_key_file_name="$certificate_authority_private_key_file_name".pub
+	local certificate_authority_next_serial_number_file_name="$certificate_authority_private_key_file_name".next_serial_number
+	local certificate_authority_authorized_keys_snippet_file_name="$certificate_authority_private_key_file_name".authorized_keys
+	
+	local private_key_file_name=rclone.id_"$key_type"
+	local public_key_file_name="$private_key_file_name".pub
+	local certified_public_key_file_name="$private_key_file_name"-cert.pub
+	
+	local certificate_authority_folder_path
+	local certificate_authority_created
+	create_local_certificate_authority_if_missing
+	lockdown_local_certificate_authority
+	
+	generate_user_key
+	generate_user_certificate "$host (User $user)"
+	delete_user_public_key
+	
+	install_user_private_key_and_certificate
+	
+	#add_keys_to_os_x_keychain
+	
+	if $certificate_authority_created; then
+		scp_certificate_authority_public_key_to_authorized_keys
+	fi
+}
+
+main "$@"

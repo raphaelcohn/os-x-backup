@@ -271,32 +271,43 @@ rclone_most_recent_folder()
 	rm "$sorted_remote_backup_folders_list_file_path"
 }
 
-depends rm cp
+rclone_set_rclone_configuration_file_path()
+{
+	local local_rclone_configuration_file_path="$configuration_folder_path"/rclone.conf
+	local is_usable
+	file_is_usable "$local_rclone_configuration_file_path"
+	if $is_usable; then
+		rclone_configuration_file_path="$local_rclone_configuration_file_path"
+	else
+		cd ~ 1>/dev/null 2>/dev/null
+			local user_rclone_configuration_file_path="$(pwd)"/.config/rclone/rclone.conf
+		cd - 1>/dev/null 2>/dev/null
+		file_is_usable "$user_rclone_configuration_file_path"
+		if $is_usable; then
+			rclone_configuration_file_path="$user_rclone_configuration_file_path"
+		else
+			exit_if_configuration_file_missing "Missing rclone configuration file"
+		fi
+	fi
+	
+	rclone_configuration_folder_path="${rclone_configuration_file_path%/*}"
+}
+
+rclone_environment_variable_expression()
+{
+	printf '%s' 's;\${RCLONE_CONFIG_DIR};'"$rclone_configuration_folder_path"';g'
+}
+
+depends rm sed
 rclone_refresh_temporary_configuration_file()
 {
 	rm -rf "$rclone_temporary_configuration_file_path"
 
 	local rclone_configuration_file_path
-	{
-		local local_rclone_configuration_file_path="$configuration_folder_path"/rclone.conf
-		local is_usable
-		file_is_usable "$local_rclone_configuration_file_path"
-		if $is_usable; then
-			rclone_configuration_file_path="$local_rclone_configuration_file_path"
-		else
-			cd ~ 1>/dev/null 2>/dev/null
-				local user_rclone_configuration_file_path="$(pwd)"/.config/rclone/rclone.conf
-			cd - 1>/dev/null 2>/dev/null
-			file_is_usable "$user_rclone_configuration_file_path"
-			if $is_usable; then
-				rclone_configuration_file_path="$user_rclone_configuration_file_path"
-			else
-				exit_if_configuration_file_missing "Missing rclone configuration file"
-			fi
-		fi
-	}
+	local rclone_configuration_folder_path
+	rclone_set_rclone_configuration_file_path
 	
-	cp "$rclone_configuration_file_path" "$rclone_temporary_configuration_file_path"
+	sed -e "$(rclone_environment_variable_expression)" "$rclone_configuration_file_path" >"$rclone_temporary_configuration_file_path"
 }
 
 rclone_prefix_remote_path()
@@ -321,4 +332,190 @@ rclone_create_encrypted_remote()
 		password = ${configured_obscured_password}
 		password2 = ${configured_obscured_salt}
 	EOF
+}
+
+rclone_default_user()
+{
+	local default_user
+	# This defaults to $USER then $LOGNAME, to match rclone (using $LOGNAME is undocumented)
+	if [ "${USER+set}" = 'set' ]; then
+		default_user="$USER"
+	else
+		if [ "${LOGNAME+set}" = 'set' ]; then
+			default_user="$LOGNAME"
+		else
+			default_user=''
+		fi
+	fi
+	
+	printf '%s' "$default_user"
+}
+
+# Sets the variables 'user', 'host', 'port' and 'known_hosts_file'.
+depends sed grep
+rclone_read_sftp_configuration()
+{
+	local rclone_configuration_file_path
+	local rclone_configuration_folder_path
+	rclone_set_rclone_configuration_file_path
+	
+	local normalized_configuration_file_path="$TMPDIR"/normalized.rclone.conf
+	# Strip leading whitespace
+	# Strip trailing whitespace
+	# Remove empty lines
+	# Remove lines starting with '#'
+	# Remove lines starting with ';'
+	# Remove whitespace between keys and values.
+	# Remove double quotes around values.
+	# Remove RCLONE_CONFIG_DIR variable.
+	sed \
+		-e 's/^[[:space:]]*//g' -e 's/[[:space:]]*$//g' \
+		-e '/^$/d' \
+		-e '/^#/d' \
+		-e '/^;/d' \
+		-e 's/^\([a-z0-9_]*\)[[:space:]]*=[[:space:]]*/\1=/g' \
+		-e 's/^\([a-z0-9_]*\)="\(.*\)"/\1=\2/g' \
+		-e "$(rclone_environment_variable_expression)" \
+		"$rclone_configuration_file_path" >"$normalized_configuration_file_path"
+	
+	# Ensures that POSIX shell read will read the last line.
+	printf '\n' >>"$normalized_configuration_file_path"
+	
+	# NOTE: grep returns exit code 1 if count is zero.
+	set +e
+		local desired_section_count="$(grep -c -m 2 '^\[remote\]$' "$normalized_configuration_file_path")"
+	set -e
+	
+	case $desired_section_count in
+		
+		0)
+			exit_configuration_message "The rclone configuration file $rclone_configuration_file_path does not contain the remote $configured_remote"
+		;;
+		
+		1)
+			:
+		;;
+			
+		2)
+			exit_configuration_message "The rclone configuration file $rclone_configuration_file_path contains the remote $configured_remote more than once"
+		;;
+		
+		*)
+			:
+		;;
+		
+	esac
+	
+	local have_parsed_desired_section=false
+	local have_parsed_type=false
+	local have_parsed_host=false
+	local parsed_host
+	local have_parsed_user=false
+	local parsed_user
+	local have_parsed_port=false
+	local parsed_port
+	local have_parsed_known_hosts_file=false
+	local parsed_known_hosts_file
+	
+	local key
+	local value
+	while IFS='=' read -r key value
+	do
+		if [ -z "$value" ]; then
+			# Is this the start of a section?
+			if [ "$(first_character "$key")$(last_character  "$key")" = '[]' ]; then
+				
+				if $have_parsed_desired_section; then
+					break
+				fi
+				
+				if [ "$key" = "[${configured_remote}]" ]; then
+					have_parsed_desired_section=true
+				fi
+				
+				continue
+			fi
+		fi
+		
+		if $have_parsed_desired_section; then
+			case "$key" in
+			
+				type)
+					if $have_parsed_type; then
+						exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote contains a duplicate type key"
+					fi
+					have_parsed_type=true
+					
+					if [ "$value" != 'sftp' ]; then
+						exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote does not have a type of sftp"
+					fi
+				;;
+			
+				host)
+					if $have_parsed_host; then
+						exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote contains a duplicate host key"
+					fi
+					have_parsed_host=true
+					
+					parsed_host="$value"
+				;;
+			
+				user)
+					if $have_parsed_user; then
+						exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote contains a duplicate user key"
+					fi
+					have_parsed_user=true
+					
+					parsed_user="$value"
+				;;
+				
+				port)
+					if $have_parsed_port; then
+						exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote contains a duplicate port key"
+					fi
+					have_parsed_port=true
+					
+					parsed_port="$value"
+				;;
+				
+				known_hosts_file)
+					if $have_parsed_known_hosts_file; then
+						exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote contains a duplicate known_hosts_file key"
+					fi
+					have_parsed_known_hosts_file=true
+					
+					parsed_known_hosts_file="$value"
+				;;
+			
+				*)
+					:
+				;;
+				
+			esac	
+		fi
+	done <"$normalized_configuration_file_path"
+	
+	if ! $have_parsed_type; then
+		exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote does not contain a type key"
+	fi
+	if $have_parsed_host; then
+		host="$parsed_host"
+	else
+		exit_configuration_message "The rclone configuration file $rclone_configuration_file_path remote $configured_remote does not contain a host key"
+	fi
+	if $have_parsed_user; then
+		user="$parsed_user"
+	else
+		user="$(rclone_default_user)"
+	fi
+	if $have_parsed_port; then
+		port="$parsed_port"
+	else
+		port=22
+	fi
+	if $have_parsed_known_hosts_file; then
+		known_hosts_file="$parsed_known_hosts_file"
+	else
+		known_hosts_file=~/.ssh/known_hosts
+	fi
 }

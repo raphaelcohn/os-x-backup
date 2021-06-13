@@ -116,7 +116,7 @@ main()
 	local configuration_folder_path
 	set_configuration_folder_path
 	
-	local local_ssh_configuration_file="$configuration_folder_path"/rsync.ssh_config
+	local local_ssh_configuration_file="$configuration_folder_path"/ssh_config
 	local is_usable
 	file_is_usable "$local_ssh_configuration_file"
 	if $is_usable; then
