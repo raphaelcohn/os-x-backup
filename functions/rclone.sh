@@ -516,6 +516,8 @@ rclone_read_sftp_configuration()
 	if $have_parsed_known_hosts_file; then
 		known_hosts_file="$parsed_known_hosts_file"
 	else
-		known_hosts_file=~/.ssh/known_hosts
+		cd ~ 1>/dev/null 2>/dev/null
+			known_hosts_file="$(pwd)"/.ssh/known_hosts
+		cd - 1>/dev/null 2>/dev/null
 	fi
 }

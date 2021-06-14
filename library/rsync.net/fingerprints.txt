@@ -1,0 +1,221 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+rsync.net SSH / SSL key fingerprints
+
+
+www.rsync.net:
+
+        SSL / SHA256  SHA1:92:45:1F:66:FC:BC:B7:70:DB:79:F0:EE:61:17:83:56:72:39:C9:0A
+                      SNA256:B2:54:00:0B:24:22:41:54:98:2C:5F:30:19:AB:2E:4F:A2:22:01:3D:75:CF:D8:6B:8A:57:AB:D0:1E:8D:90:B4
+
+usw-s001.rsync.net:
+
+        SSH / DSA     MD5:b6:e6:9a:b5:73:60:b2:f6:c3:31:5b:87:93:ab:0e:1a
+                      SHA256:LjBv6uB0wLTgCpHlJ7N30bjoGXGGSf+qHpSLHsBzYfM
+
+        SSH / RSA     MD5:f6:da:7a:07:93:e8:1e:9c:6a:d3:33:45:51:11:09:40
+                      SHA256:2PJI8P77SFeKmaeeN2KJCplgqu6FNKaPfBfGS5FYHug
+
+        SSH / ED25519 MD5:1b:24:e2:53:77:c3:52:65:ed:d9:6d:d7:b0:5e:12:e1
+                      SHA256:7RsNtjKlO7rzmmHarZzDRlpCeXdubDdhOeo6RhYWUCA
+
+usw-s002.rsync.net:
+
+        SSH / DSA     MD5:85:43:6c:13:3f:e5:1c:8e:40:16:c2:40:93:60:b6:41
+                      SHA256:TiW/iOCgJ4l6LCIm5QpBmkvfQnPrtvwWxNl0KATAxpA
+
+        SSH / RSA     MD5:bb:49:1f:63:0a:fc:3a:3e:fd:e7:fc:28:44:6e:c0:22
+                      SHA256:WdJSnivVcvEdMOCWBxtBpGWe9FSeTOcEV+CT4fB2Fx4
+
+        SSH / ED25519 MD5:b3:b1:87:ff:8c:66:1f:a7:3f:a2:62:c6:4b:08:f8:8d
+                      SHA256:DBW4gxagH9Q3Avnus+dxaoOS5L/Q/tZlT42bcoMp+4Y
+
+usw-s003.rsync.net:
+
+        SSH / DSA     MD5:8e:0b:53:29:13:2c:1f:68:50:90:b4:6c:8c:32:a1:8a
+                      SHA256:oZoWD+zlFmNiMo5vO/Ck4sGdY2Z+4lRefuhj8BthfAM
+
+        SSH / RSA     MD5:72:8b:86:2d:24:7a:ac:f0:ba:25:e7:8e:29:39:af:16
+                      SHA256:etoWAR5GY+RTSwm96/e5W9NjVKiBiUjm25swMNk5DhY
+        
+        SSH / ED25519 MD5:2a:30:0f:8f:5d:fe:78:36:b6:4e:7b:a5:a3:3f:93:4c
+                      SHA256:jJCISHUXooV9/rh7kSeqiSuPvOVWBFCOe2CNkwTO46o
+
+usw-s004.rsync.net:
+
+        SSH / DSA     MD5:dd:b3:40:df:47:c8:69:63:15:7a:80:c7:24:1c:7d:af
+                      SHA256:ZY3ebYiLMj0LLq0n/mgVeXMUEmFJKn4uXvvwpH2hcO0
+
+        SSH / RSA     MD5:0e:46:0d:01:a1:20:60:5e:56:b9:4d:89:32:66:71:36
+                      SHA256:ILHbyihxk7ztdVyyMhc7hblWwADryBPPA6oDkXRjtgg
+
+        SSH / ED25519 MD5:cd:a8:26:a8:20:d7:47:a1:3c:83:10:87:f6:5e:78:f7
+                      SHA256:4oyCIuk+EWE+IQ+KHAakU+EFNl9nAPncFkj5bYz3g28
+
+usw-s005.rsync.net:
+
+        SSH / DSA     MD5:d7:fe:35:1a:b3:b2:f0:e5:af:25:8c:0b:9f:29:65:53
+                      SHA256:TUGzDVWHRv79NIbeOcrypVgLl4pSMkpHTLlGj0SYXlY
+
+        SSH / RSA     MD5:54:16:c6:e6:e9:2b:d4:c3:16:ae:b1:da:5a:1d:ec:10
+                      SHA256:ojAMaLL58JpAXQU8AN/OgUIe9sqEjQg8X2Y2VIsORy8
+
+        SSH / ED25519 MD5:df:72:79:c3:5b:b6:28:a8:2e:58:63:53:4f:df:7c:32
+                      SHA256:1aBuKamW8gLQPz0iqUZI3ut1dqiSlWtLJucjwoP0UDg
+                      
+        SSH / ECDSA   MD5:f4:f3:cd:3e:82:87:95:12:0f:47:57:37:83:5d:65:2a
+                      SHA256:c7M0fYr4xogxAIMSGCkAr9HW2unhM7wzFTTD3opYdt8
+                      
+usw-s007.rsync.net:
+
+        SSH / DSA     MD5:5f:97:15:54:44:8a:44:7f:ba:8d:b2:ef:51:63:3c:d8
+                      SHA256:tYhFqk1ZUG4fZGreIaJ+n3YXJ49PNEC/IJspl3nZxeQ
+
+        SSH / RSA     MD5:96:95:c5:94:fb:6f:b1:cf:de:58:01:19:af:1d:32:3a
+                      SHA256:ed3K+WYLQKO6fb3ZjJbkEwQFmv/DyrwTaEcjJphkkLM
+
+        SSH / ED25519 MD5:cb:96:5b:2c:19:98:c1:48:45:4c:8b:a9:d5:9c:76:2d
+                      SHA256:G4hq1a+D2he0uy43fYYFp3F3FXiSFmVFdJiwQYb/UzQ
+
+usw-s008.rsync.net:
+
+        SSH / DSA     MD5:4c:29:4b:6e:b8:6b:fa:48:b5:13:9b:a1:e6:44:3d:51
+                      SHA256:f3O8IiOmKb4bqpS+/b19mWGHhdlweirz3j3bkqbujNo
+
+        SSH / RSA     MD5:1a:27:34:b5:df:d8:8e:cd:2a:45:2e:e8:9d:66:5a:1f
+                      SHA256:02qFblJFItK9Vc1HwlPmKBmJC1PICvfggTnrtCLtY6E
+
+        SSH / ED25519 MD5:7b:a5:1a:31:8f:11:1e:c6:a0:a6:dc:22:2b:02:f9:85
+                      SHA256:CxrQxQE9l1IICgEkP27s5h596gKIZWrQDccVapeusd8
+
+usw-s009.rsync.net:
+
+        SSH / DSA     MD5:01:ee:56:7b:41:74:fd:7f:0d:03:48:66:59:91:d8:99
+                      SHA256:fsczTmRuri4D+5TZUN/2j5AeRhvAyekWRBl6dlLjnkI
+
+        SSH / RSA     MD5:64:38:0e:1e:6e:8f:fa:6c:cc:63:3f:3b:87:e2:06:ff
+                      SHA256:vgLVB0mgh9zGHD1PPztzBdLSViaNWU724EPxS65fhm4
+
+        SSH / ED25519 MD5:ee:5c:8d:27:7d:e9:9a:5d:13:aa:14:33:2f:af:48:7d
+                      SHA256:1Z1TGkiiS5Aucq7lVVvjZNvhRBjoChjvmNpmTkQjjYE
+
+ch-s010.rsync.net:
+
+        SSH / DSA     MD5:89:11:a3:ad:3e:12:95:3a:51:0e:12:dc:6e:65:0d:0e
+                      SHA256:U0YxmBNWaeueFEcW7OAbI7LcoMWMlpdH6oQqRtVVnI4
+
+        SSH / RSA     MD5:d5:1b:46:58:28:9c:d1:db:d9:2e:ab:1e:01:d2:e7:1e
+                      SHA256:zYEdIMSNii6hW9nzWF/GUBQ7k6RMqlRKmGW1UdXipXc
+
+        SSH / ED25519 MD5:34:9c:f6:f6:9d:96:71:16:5d:29:5b:65:25:4b:95:09
+                      SHA256:Ai4DscKx6Pi3BOcqASTRD2dZRepa/6YqxpcAOw/DY1U
+
+ch-s011.rsync.net:
+
+        SSH / DSA     MD5:6e:ce:f8:0b:3a:51:b9:e7:b9:8e:56:38:df:1f:f0:5e
+                      SHA256:FkT4HOSrzHY67gaA9sHD8JHVqtHey12A98C5SZo78zw
+
+        SSH / RSA     MD5:d1:b4:5f:c7:5b:3f:3e:4f:5a:ee:a4:20:d9:ae:e1:34
+                      SHA256:NqkzyuFo4xah71eTjFrHglCQ7WnlgSWq3Dwproiv3As
+
+        SSH / ED25519 MD5:d6:31:55:03:9b:e8:0d:6e:c3:42:98:f8:3e:a3:5f:78
+                      SHA256:2iP8PhmyJY4WrELs//xTB2DbfBbwuPiiD4EZYVoEaJM
+
+ch-s012.rsync.net:
+
+        SSH / DSA     MD5:a2:1b:4d:f1:2f:e4:49:56:25:48:e5:51:9b:4a:ab:23
+                      SHA256:QmTdaDvDruUYqPNvPPyh4Yk0cJxnCHUXDqN2q0Oo+oc
+
+        SSH / RSA     MD5:0a:d2:88:54:c2:4a:6d:f4:13:43:7c:87:ca:c4:ca:1f
+                      SHA256:+j+C0R3po+/r6Gn/nC0YHt8Kjtebqy7ak8pfxSIVteA
+
+        SSH / ED25519 MD5:4e:5b:29:9c:07:40:8d:e3:dc:a2:4a:c8:4d:cf:f8:9d
+                      SHA256:LDk8HBZi7vL4Ueb0Dait4ljfYnitAV2MO3L9RFK7PJA
+
+hk-s020.rsync.net:
+
+        SSH / DSA     MD5:58:e3:aa:5d:4f:0a:73:6d:67:af:6e:c9:10:6b:7d:49
+                      SHA256:V1KWWy9NTeWU3VfsQPuNGsdW2sjEXOkwwyUp+9NaNyc
+                      
+        SSH / RSA     MD5:6f:32:f9:98:96:b5:2c:c4:e7:34:22:b9:04:8f:00:3b
+                      SHA256:sSQWvpSx46xt4lAd5htXe0+qQtsEPW8Z1sSc0esL1DE
+
+        SSH / ED25519 MD5:d1:e8:db:da:6a:25:3c:ee:67:a3:31:d6:04:73:3d:d5
+                      SHA256:j+MKa6HbcYnTvuVosZtT013sOYDMxXC5Z9dy/6lp+9Q
+
+sd1.rsync.net:
+
+        SSH / ECDSA   MD5:0d:14:67:3f:7a:21:03:af:7a:a1:8f:11:a3:ea:7d:1d
+                      SHA256:w/Qo2y2QnaRRKUCGVQzd7Xosb4GS2jMXFdu0gxHl0j0
+
+        SSH / ED25519 MD5:1b:24:e2:53:77:c3:52:65:ed:d9:6d:d7:b0:5e:12:e1
+                      SHA256:RODvG/ixr/m7nd77K6dYrNKl+JaDJfsOIDz6YWszHrs
+
+        SSH / RSA     MD5:55:56:67:e8:bc:9d:4a:f9:02:a6:80:ef:ac:fc:ea:2c
+                      SHA256:UGxq2Dqi52Zu/pNfkLqkrQdXHIqJnOF5F3D0zD+Oywc
+
+de6.rsync.net:
+
+        SSH / ECDSA   MD5:7c:fc:c9:fa:00:a5:fa:8f:f3:25:b4:98:60:ce:b1:12
+                      SHA256:SdHDNH7JXIJCQloRz6v9l6IMsDCshQ7gpp6PByHKVII
+
+        SSH / ED25519 MD5:75:1c:19:7c:e8:79:75:1e:d0:81:2a:18:c6:1f:b3:67
+                      SHA256:VFQ/u4pzBiTzR9xGkbvi+McfDvTs+GLTVq8rncjLd9k
+
+de7.rsync.net:
+
+        SSH / ECDSA   MD5:7c:fc:c9:fa:00:a5:fa:8f:f3:25:b4:98:60:ce:b1:12
+                      SHA256:SdHDNH7JXIJCQloRz6v9l6IMsDCshQ7gpp6PByHKVII
+
+        SSH / ED25519 MD5:75:1c:19:7c:e8:79:75:1e:d0:81:2a:18:c6:1f:b3:67
+                      SHA256:VFQ/u4pzBiTzR9xGkbvi+McfDvTs+GLTVq8rncjLd9k
+
+        SSH / RSA     MD5:32:65:46:af:90:4e:57:7b:c6:da:27:8b:cb:5c:58:07
+                      SHA256:XmOMV1ZaZ/qKRIehihU5hHVFqfbEuuTeIDX2h8iM0aA
+
+de9.rsync.net:
+
+        SSH / ECDSA   MD5:7c:fc:c9:fa:00:a5:fa:8f:f3:25:b4:98:60:ce:b1:12
+                      SHA256:SdHDNH7JXIJCQloRz6v9l6IMsDCshQ7gpp6PByHKVII
+
+        SSH / ED25519 MD5:75:1c:19:7c:e8:79:75:1e:d0:81:2a:18:c6:1f:b3:67
+                      SHA256:VFQ/u4pzBiTzR9xGkbvi+McfDvTs+GLTVq8rncjLd9k
+
+zh11.rsync.net:
+
+        SSH / ECDSA   MD5:b3:69:a1:82:ad:7e:d6:3d:f1:1f:a8:c3:2d:c7:69:c0
+                      SHA256:aDNHfL1BivW6XWQ5ni1JgHCT3nMGNzzXM2zpGbNxr9M
+
+        SSH / ED25519 MD5:b4:b7:80:e6:c6:87:a3:bd:85:fa:24:b7:a8:98:9c:af
+                      SHA256:ZgHI92oPwu+HpSnOC0aEPLLUNhOYwAZGHUNGsYAiJUM
+
+        SSH / RSA     MD5:68:e2:d6:15:99:b4:cb:7f:13:4e:1a:bf:95:8c:6c:b6
+                      SHA256:hjRZ3ruPfwyZePA+lUZkRSCV+3kJtyt9f4ICZh+af9M
+
+zh13.rsync.net:
+
+        SSH / ECDSA   MD5:b3:69:a1:82:ad:7e:d6:3d:f1:1f:a8:c3:2d:c7:69:c0
+                      SHA256:aDNHfL1BivW6XWQ5ni1JgHCT3nMGNzzXM2zpGbNxr9M
+
+        SSH / ED25519 MD5:b4:b7:80:e6:c6:87:a3:bd:85:fa:24:b7:a8:98:9c:af
+                      SHA256:ZgHI92oPwu+HpSnOC0aEPLLUNhOYwAZGHUNGsYAiJUM
+
+        SSH / RSA     MD5:68:e2:d6:15:99:b4:cb:7f:13:4e:1a:bf:95:8c:6c:b6
+                      SHA256:hjRZ3ruPfwyZePA+lUZkRSCV+3kJtyt9f4ICZh+af9M
+
+fm5.rsync.net:
+
+        SSH / ECDSA   MD5:99:6c:08:a6:72:0d:56:17:cb:cf:49:1a:9e:70:4c:68
+                      SHA256:tOav7DxJ6Yur1tTLDZ/K9RCjxsvf8/EmyEunZtBMJig
+
+        SSH / ED25519 MD5:86:fa:9a:76:91:6b:29:cc:7e:79:a0:90:4e:14:b9:ff
+                      SHA256:WMAyt8H61B3E9BeKBI1czyh52Q36K9fhZEo6giRWztM
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v2.0.18 (FreeBSD)
+
+iEYEAREIAAYFAmDBRs8ACgkQBzwoLX1vgGxtaQCePXQDQM2/0FE3Mk5U1tbkc4ju
+TiEAoJ32FMfrgDZ8IJl/tEfmXqPLpJRc
+=6yU/
+-----END PGP SIGNATURE-----

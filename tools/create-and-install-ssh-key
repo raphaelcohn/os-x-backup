@@ -301,7 +301,7 @@ main()
 	local certificate_authority_next_serial_number_file_name="$certificate_authority_private_key_file_name".next_serial_number
 	local certificate_authority_authorized_keys_snippet_file_name="$certificate_authority_private_key_file_name".authorized_keys
 	
-	local private_key_file_name=rclone.id_"$key_type"
+	local private_key_file_name="$user".id_"$key_type"
 	local public_key_file_name="$private_key_file_name".pub
 	local certified_public_key_file_name="$private_key_file_name"-cert.pub
 	

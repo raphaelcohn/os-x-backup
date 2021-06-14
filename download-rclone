@@ -110,48 +110,6 @@ _program_name='download-rclone'
 . functions/common.sh
 . functions/rclone.sh
 
-depends curl
-download_using_curl()
-{
-	local url="$1"
-	local destination_folder_path="$2"
-	local file_name="$3"
-	
-	# Mac OS X using homebrew has a version of curl that supports TLS 1.3.
-	local curl_command='/usr/local/opt/curl/bin/curl'
-	if [ -x "$curl_command" ]; then
-		local tls_version=1.3
-	else
-		curl_command="$(command -v curl)"
-		local tls_version=1.2
-	fi
-
-	printf 'Downloading %s to %s using curl… ' "$url" "$destination_folder_path" 1>&2
-	cd "$destination_folder_path" 1>/dev/null 2>/dev/null
-		set +e
-			"$curl_command" --silent --fail --proto '=https' --http2 --tlsv${tls_version} --output "$file_name" "$url"
-			local exit_code=$?
-		set -e
-		case $exit_code in
-			
-			0)
-				printf 'done\n' 1>&2
-				failed=false
-			;;
-			
-			22)
-				printf 'not found\n' 1>&2
-				failed=true
-			;;
-			
-			*)
-				exit_temporary_fail_message "failed"
-			;;
-			
-		esac
-	cd - 1>/dev/null 2>/dev/null
-}
-
 depends mkdir unzip rm chmod mv
 download_and_extract_zip()
 {
@@ -163,7 +121,7 @@ download_and_extract_zip()
 	mkdir -m 0700 -p "$download_to_folder_path"
 	
 	local failed
-	download_using_curl "$url" "$download_to_folder_path" "$download_file_name"
+	download_using_curl "$url" "$download_to_folder_path" "$download_file_name" 1.3
 	
 	if $failed; then
 		return 0

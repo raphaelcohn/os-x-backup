@@ -42,10 +42,10 @@ exit_usage_message()
 	_exit_error_message $EX_USAGE "$1"
 }
 
-exit_configuration_message()
+exit_no_host_message()
 {
-	local EX_CONFIG=64
-	_exit_error_message $EX_CONFIG "$1"
+	local EX_USAGE=68
+	_exit_error_message $EX_USAGE "$1"
 }
 
 exit_system_file_message()
@@ -54,22 +54,28 @@ exit_system_file_message()
 	_exit_error_message $EX_OSFILE "$1"
 }
 
-exit_temporary_fail_message()
-{
-	local EX_TEMPFAIL=77
-	_exit_error_message $EX_TEMPFAIL "$1"
-}
-
 exit_can_not_create_message()
 {
 	local EX_CANTCREAT=73
 	_exit_error_message $EX_CANTCREAT "$1"
 }
 
+exit_temporary_fail_message()
+{
+	local EX_TEMPFAIL=75
+	_exit_error_message $EX_TEMPFAIL "$1"
+}
+
 exit_permission_message()
 {
 	local EX_NOPERM=77
 	_exit_error_message $EX_NOPERM "$1"
+}
+
+exit_configuration_message()
+{
+	local EX_CONFIG=78
+	_exit_error_message $EX_CONFIG "$1"
 }
 
 exit_if_folder_missing()

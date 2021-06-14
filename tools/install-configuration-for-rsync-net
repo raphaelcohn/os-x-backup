@@ -1,0 +1,484 @@
+#!/usr/bin/env sh
+# This file is part of os-x-backup. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT. No part of os-x-backup, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2021 The developers of os-x-backup. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/raphaelcohn/os-x-backup/master/COPYRIGHT.
+
+
+set -e
+set -u
+set -f
+
+_program_path_find()
+{
+	if [ "${0%/*}" = "$0" ]; then
+
+		# We've been invoked by the interpreter as, say, bash program
+		if [ -r "$0" ]; then
+			pwd -P
+		# Clutching at straws; probably run via a download, anonymous script, etc, weird execve, etc
+		else
+			printf '\n'
+		fi
+
+	else
+
+		# We've been invoked with a relative or absolute path (also when invoked via PATH in a shell)
+
+		_program_path_find_parentPath()
+		{
+			parentPath="${scriptPath%/*}"
+			if [ -z "$parentPath" ]; then
+				parentPath='/'
+			fi
+			cd "$parentPath" 1>/dev/null
+		}
+
+		# pdksh / mksh have problems with unsetting a variable that was never set...
+		if [ "${CDPATH+set}" = 'set' ]; then
+			unset CDPATH
+		fi
+
+		if command -v realpath 1>/dev/null 2>/dev/null; then
+			(
+				scriptPath="$(realpath "$0")"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		elif command -v readlink 1>/dev/null 2>/dev/null; then
+			(
+				local recursionDepth=0
+				_program_path_resolve_symlinks_recursively()
+				{
+					local unresolvedPath="$1"
+					
+					recursionDepth=$((recursionDepth + 1))
+					
+					if [ $recursionDepth -gt 10 ]; then
+						printf '%s\n' 'Recursion to depths greater than 10 is not allowed when resolving links.'
+						return 1
+					fi
+					
+					local potentialLinkDestination="$(readlink -- "$unresolvedPath")"
+					
+					if [ -z "$potentialLinkDestination" ]; then
+						scriptPath="$unresolvedPath"
+						return 0
+					fi
+					local linkDestination="$potentialLinkDestination"
+					local parentFolderPath="${unresolvedPath%/*}"
+					
+					if [ "$parentFolderPath" = "$unresolvedPath" ]; then
+						_program_path_resolve_symlinks_recursively "$linkDestination"
+					else
+						case "$linkDestination" in
+								
+							/*)
+								_program_path_resolve_symlinks_recursively "$linkDestination"
+							;;
+							
+							*)
+								_program_path_resolve_symlinks_recursively "$parentFolderPath"/"$linkDestination"
+							;;
+							
+						esac
+					fi
+				}
+
+				scriptPath="$0"
+				_program_path_resolve_symlinks_recursively "$scriptPath"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		else
+			# This approach will fail in corner cases where the script itself is a symlink in a path not parallel with the concrete script
+			(
+				scriptPath="$0"
+
+				_program_path_find_parentPath
+				pwd -P
+			)
+		fi
+
+	fi
+}
+
+cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
+
+cd "$(pwd)"/..
+_program_name='create-and-install-ssh-key'
+. functions/common.sh
+. functions/download.sh
+
+guard_arguments()
+{
+	usage_message="Specify $_program_name install RSYNC_NET_USER [RSYNC_NET_HOST]
+	
+	if RSYNC_NET_HOST is omitted it defaults to RSYNC_NET_USER.rsync.net
+	
+	eg ./$_program_name install zh1572 zh1572.rsync.net
+"
+	case $# in
+		
+		0)
+			exit_usage_message "$usage_message"
+		;;
+		
+		*)
+			verb="$1"
+			shift 1
+			case "$verb" in
+				
+				help|-h|-help|--help)
+					exit_help_message "$usage_message"
+				;;
+				
+				install)
+					:
+				;;
+				
+				*)
+					exit_usage_message "The verb '$verb' is not known"
+				;;
+				
+			esac
+		;;
+		
+	esac
+}
+
+depends id
+find_local_user()
+{
+	local_user="$(id -u -n)"
+}
+
+depends rm cat
+create_configuration_file_rclone_conf()
+{
+	local indirect_configuration_folder_path='${RCLONE_CONFIG_DIR}'
+	
+	local file_path="$configuration_folder_path"/rclone.conf
+	rm -rf "$file_path"
+	cat >"$file_path" <<-EOF
+		[remote]
+		type = sftp
+		host = ${host}
+		user = ${user}
+		port = 22
+		key_use_agent = true
+		key_file = "${indirect_configuration_folder_path}/${user}.id_ed25519"
+		pubkey_file = "${indirect_configuration_folder_path}/${user}.id_ed25519-cert.pub"
+		known_hosts_file = "${indirect_configuration_folder_path}/known_hosts"
+		md5sum_command = "md5"
+		sha1sum_command = "sha1"
+		use_insecure_cipher = false
+		disable_hashcheck = false
+		set_modtime = true
+		skip_links = false
+		subsystem = "sftp"
+	EOF
+}
+
+depends mkdir rm cp
+make_basic_folder_structure_and_filters()
+{
+	local local_user
+	find_local_user
+	
+	local folder_path="$configuration_folder_path"/root/Users/"$local_user"
+	
+	mkdir -m 0700 -p "$folder_path"
+	
+	local file_path="$folder_path"/filter.rclone
+	rm -rf "$file_path"
+	cp example-configuration/root/Users/raph/filter.rclone "$file_path"
+}
+
+download_if_missing()
+{
+	local file_name="$1"
+	local base_url='https://www.rsync.net/resources'
+	
+	local is_usable
+	file_is_usable "$our_library_folder_path"/"$file_name"
+	if $is_usable; then
+		downloaded=false
+		return 0
+	fi
+	downloaded=true
+	
+	download_using_curl "$base_url"/"$file_name" "$TMPDIR" "$file_name" "$rsync_net_tls_version"
+}
+
+depends rm cat
+download_and_validate_ssh_host_key_then_add_to_known_hosts()
+{
+	download_fingerprints
+	
+	local host_fingerprints_file_path
+	extract_rsync_net_host_fingerprints_file
+	
+	rm -rf "$known_hosts_file_path"
+	
+	local key_type
+	for key_type in rsa ecdsa ed25519
+	do
+		local known_hosts_snippet_file_path
+		local reconstructed_host_public_key_file_path
+		download_ssh_host_key "$key_type"
+	
+		local expected_md5_fingerprint
+		local expected_sha256_fingerprint
+		extract_expected_ssh_host_key_fingerprints "$key_type" "$host_fingerprints_file_path"
+	
+		local actual_md5_fingerprint
+		local actual_sha256_fingerprint
+		calculate_actual_md5_and_sha256_fingerprints
+		
+		if [ "$expected_md5_fingerprint" != "$actual_md5_fingerprint" ]; then
+			exit_error_message "MD5 fingerprints do not match for host $host key_type $key_type"
+		fi
+		if [ "$expected_sha256_fingerprint" != "$actual_sha256_fingerprint" ]; then
+			exit_error_message "SHA256 fingerprints do not match for host $host key_type $key_type"
+		fi
+		
+		cat "$known_hosts_snippet_file_path" >>"$known_hosts_file_path"
+	done
+}
+
+depends mv
+download_fingerprints()
+{
+	local downloaded
+	download_if_missing pubkey.txt
+	if $downloaded; then
+		mv "$TMPDIR"/pubkey.txt "$our_library_folder_path"
+	fi
+	
+	download_if_missing fingerprints.txt
+	if ! $downloaded; then
+		return 0
+	fi
+	
+	if [ ! -x /usr/local/bin/gpg ]; then
+		/usr/local/bin/brew install gnupg
+	fi
+	
+	# OpenPGP (but not ascii armoured) public keys can be used as keyrings.
+	local temporary_imported_key_ring="$TMPDIR"/gnupg.keyring
+	/usr/local/bin/gpg --yes --always-trust --output "$temporary_imported_key_ring" --dearmour "$our_library_folder_path"/pubkey.txt
+	
+	set +e
+		/usr/local/bin/gpg --status-fd 2 --no-default-keyring --keyring "$temporary_imported_key_ring" --trust-model always --verify "$TMPDIR"/fingerprints.txt 2>/dev/null
+		local exit_code=$?
+	set -e
+	
+	if [ $exit_code -ne 0 ]; then
+		exit_error_message "Invalid signature for fingerprints.txt"
+	fi
+	
+	printf '%s\n' "Validated fingerprints.txt" 1>&2
+	mv "$TMPDIR"/fingerprints.txt "$our_library_folder_path"
+}
+
+depends host awk
+find_ipv4_address_of_host()
+{
+	local host_name="$1"
+	
+	local raw="$TMPDIR"/raw
+	set +e
+		host -t A "$host_name" >"$raw"
+		if [ $? -ne 0 ]; then
+			exit_error_message "Failed to resolve host $host_name"
+		fi
+	set -e
+	
+	ipv4_address="$(awk -F ' ' '{ print $NF; exit 0 }' "$raw")"
+}
+
+depends sed tr awk
+extract_rsync_net_host_fingerprints_file()
+{
+	local fingerprints_file_path="$our_library_folder_path"/fingerprints.txt
+	local simplified_fingerprints_file_path="$TMPDIR"/simplified-fingerprints
+	
+	host_fingerprints_file_path="$TMPDIR"/host-fingerprints
+	
+	# Turns the PGP signed fingerprints.txt into lines like:-
+	#
+	# www.rsync.net SSL_SHA256 SHA1|92:45:1F:66:FC:BC:B7:70:DB:79:F0:EE:61:17:83:56:72:39:C9:0A SHA256|B2:54:00:0B:24:22:41:54:98:2C:5F:30:19:AB:2E:4F:A2:22:01:3D:75:CF:D8:6B:8A:57:AB:D0:1E:8D:90:B4
+	# zh13.rsync.net SSH_ECDSA MD5|b3:69:a1:82:ad:7e:d6:3d:f1:1f:a8:c3:2d:c7:69:c0 SHA256|aDNHfL1BivW6XWQ5ni1JgHCT3nMGNzzXM2zpGbNxr9M SSH_ED25519 MD5|b4:b7:80:e6:c6:87:a3:bd:85:fa:24:b7:a8:98:9c:af SHA256|ZgHI92oPwu+HpSnOC0aEPLLUNhOYwAZGHUNGsYAiJUM SSH_RSA MD5|68:e2:d6:15:99:b4:cb:7f:13:4e:1a:bf:95:8c:6c:b6 SHA256|hjRZ3ruPfwyZePA+lUZkRSCV+3kJtyt9f4ICZh+af9M
+	# fm5.rsync.net SSH_ECDSA MD5|99:6c:08:a6:72:0d:56:17:cb:cf:49:1a:9e:70:4c:68 SHA256|tOav7DxJ6Yur1tTLDZ/K9RCjxsvf8/EmyEunZtBMJig SSH_ED25519 MD5|86:fa:9a:76:91:6b:29:cc:7e:79:a0:90:4e:14:b9:ff SHA256|WMAyt8H61B3E9BeKBI1czyh52Q36K9fhZEo6giRWztM
+	#
+	# Note that the SSL line has a different format for the SHA1 and SHA256 fingerprints to the SSH lines.
+	sed -e '/^-----BEGIN PGP SIGNED MESSAGE-----$/d' -e '/^Hash: .*$/d' -e '/^rsync.net .* fingerprints$/d' -e '/^-----BEGIN PGP SIGNATURE-----$/,$d' -e 's/SNA256/SHA256/g' -e 's/[[:space:]]\{1,\}/ /g' -e '/^$/d' -e '/^[[:space:]]$/d' -e 's/SSH \/ /SSH_/g' -e 's/SSL \/ /SSL_/g' -e 's/:$//g' -e 's/MD5:/MD5|/g' -e 's/SHA\([0-9]*\):/SHA\1|/g' "$fingerprints_file_path" | tr '\n' '@' | sed -e 's/@ / /g' | tr '@' '\n' | sed -e '/^$/d' >"$simplified_fingerprints_file_path"
+	
+	# Sadly, the fingerprints file does not contain most hosts.
+	# Most hosts are actually aliases of existing hosts (but don't used CNAME records in DNS), ie they have the IP address of one of the hosts in the fingerprints.txt file.
+	# Additionally, reverse DNS is such that a reverse DNS host name might not have a fingerprint, eg reverse DNS of zh1572.rsync.net gives a DNS host name of ch-s013.rsync.net, which is absent from the fingerprints.txt file.
+	#
+	# Hence we:-
+	# * find the ip address of every host in the fingerprint file;
+	# * then find the ip address of our host;
+	# * try to find where the two ip addresses match, and use that host as a fingerprint host to lookup in the fingerprints.
+	local fingerprint_host_names="$TMPDIR"/fingerprint-host-names
+	local ip_addresses_to_fingerprint_host_names="$TMPDIR"/ip-addresses-to-fingerprint-host-names
+	awk '{print $1}' "$simplified_fingerprints_file_path" >"$fingerprint_host_names"
+	{
+		local fingerprint_host_name
+		while IFS= read -r fingerprint_host_name
+		do
+			local ipv4_address
+			find_ipv4_address_of_host "$fingerprint_host_name"
+			printf '%s %s\n' "$ipv4_address" "$fingerprint_host_name"
+		done <"$fingerprint_host_names"
+	} >"$ip_addresses_to_fingerprint_host_names"
+
+	local ipv4_address
+	find_ipv4_address_of_host "$host"
+	local fingerprint_host_name="$(awk '$1 ~ /^'"$ipv4_address"'$/ { print $2; exit 0 }' "$ip_addresses_to_fingerprint_host_names")"
+	if [ -z "$fingerprint_host_name" ]; then
+		exit_configuration_message "No known fingerprint host for $host with ipv4 address $ipv4_address"
+	fi
+	
+	# Creates entries of the following form:-
+	#
+	# SSH_ECDSA MD5|b3:69:a1:82:ad:7e:d6:3d:f1:1f:a8:c3:2d:c7:69:c0 SHA256|aDNHfL1BivW6XWQ5ni1JgHCT3nMGNzzXM2zpGbNxr9M
+	# SSH_ED25519 MD5|b4:b7:80:e6:c6:87:a3:bd:85:fa:24:b7:a8:98:9c:af SHA256|ZgHI92oPwu+HpSnOC0aEPLLUNhOYwAZGHUNGsYAiJUM
+	# SSH_RSA MD5|68:e2:d6:15:99:b4:cb:7f:13:4e:1a:bf:95:8c:6c:b6 SHA256|hjRZ3ruPfwyZePA+lUZkRSCV+3kJtyt9f4ICZh+af9M
+	awk 'BEGIN { ORS = " " } $1 ~ /^'"$fingerprint_host_name"'$/ { for (i = 2; i <= NF; i++) print $i; exit 0 }' "$simplified_fingerprints_file_path" | sed 's/SSH_/@SSH_/g' | tr '@' '\n' | sed '/^$/d' >"$host_fingerprints_file_path"
+}
+
+depends ssh-keyscan head cut
+download_ssh_host_key()
+{
+	local key_type="$1"
+	
+	local keyscan_standard_output_file_path="$TMPDIR"/keyscan.raw
+	local keyscan_error_output_file_path="$TMPDIR"/keyscan.error
+	
+	known_hosts_snippet_file_path="$TMPDIR"/"$host"."$key_type".known_hosts
+	reconstructed_host_public_key_file_path="$TMPDIR"/"$host"."$key_type".pub
+
+	# ssh-keyscan returns exit code 0 even for lookup failures or timeouts; it does not return an error message if there is no SSH service running!
+	# It returns exit code 0 if the key type is not supplied by the SSH service.
+	# It returns exit code 255 for invalid key types.
+	set +e
+		ssh-keyscan -H -t "$key_type" -p "$port" "$host" 1>"$keyscan_standard_output_file_path" 2>"$keyscan_error_output_file_path"
+		local exit_code=$?
+	set -e
+	case $exit_code in
+		
+		0)
+			if [ ! -s "$keyscan_error_output_file_path" ]; then
+				exit_no_host_message "Could not retrieve SSH $key_type key from host $host on port $port because of a DNS lookup error"
+			fi
+			if [ ! -s "$keyscan_standard_output_file_path" ]; then
+				exit_temporary_fail_message "Could not retrieve SSH $key_type key from host $host on port $port (this could be a connection failure, or because the host does not have a SSH service running, or the host does not support a key type)!"
+			fi
+		;;
+		
+		1)
+			exit_error_message "Could not retrieve SSH $key_type key from host $host on port $port because of a bad command line to ssh-keyscan"
+		;;
+		
+		255)
+			exit_error_message "Could not retrieve SSH $key_type key from host $host on port $port because the key type is unsupported by ssh-keyscan (not the host)"
+		;;
+		
+		*)
+			exit_error_message "Could not retrieve SSH $key_type key from host $host on port $port because of ssh-keyscan exit code $exit_code"
+		;;
+	esac
+
+	head -n 1 "$keyscan_standard_output_file_path" >"$known_hosts_snippet_file_path"
+
+	local part_of_host_key="$(cut -d ' ' -f2- "$known_hosts_snippet_file_path")"
+	printf '%s %s\n' "$part_of_host_key" "$host" >"$reconstructed_host_public_key_file_path"
+}
+
+depends awk
+extract_expected_ssh_host_key_fingerprints()
+{
+	local key_type="$1"
+	local host_fingerprints_file_path="$2"
+	
+	local upper_case_key_type
+	case "$key_type" in
+		
+		rsa)
+			upper_case_key_type='RSA'
+		;;
+		
+		dsa)
+			upper_case_key_type='DSA'
+		;;
+		
+		ecdsa)
+			upper_case_key_type='ECDSA'
+		;;
+		
+		ed25519)
+			upper_case_key_type='ED25519'
+		;;
+		
+		*)
+			exit_error_message "Unsupported key_type $key_type"
+		;;
+		
+	esac
+	
+	local extracted_fingerprint_file_path="$TMPDIR"/extracted-fingerprint
+	awk 'BEGIN { ORS = "\n" } $1 ~ /^SSH_'"$upper_case_key_type"'/ { for (i = 2; i <= NF; i++) print $i; exit 0 }' "$host_fingerprints_file_path" >"$extracted_fingerprint_file_path"
+	
+	expected_md5_fingerprint="$(awk -F '|' '$1 ~ /^MD5$/ {print $2}' "$extracted_fingerprint_file_path")"
+	expected_sha256_fingerprint="$(awk -F '|' '$1 ~ /^SHA256$/ {print $2}' "$extracted_fingerprint_file_path")"
+}
+
+depends ssh-keygen
+calculate_actual_md5_and_sha256_fingerprints()
+{
+	# Note the final hyphen in cut differs between MD5 and SHA256
+	actual_md5_fingerprint="$(ssh-keygen -l -E md5 -f "$reconstructed_host_public_key_file_path" | cut -d ' ' -f2 | cut -d ':' -f2-)"
+	actual_sha256_fingerprint="$(ssh-keygen -l -E sha256 -f "$reconstructed_host_public_key_file_path" | cut -d ' ' -f2 | cut -d ':' -f2)"
+}
+
+depends chmod
+main()
+{
+	guard_arguments "$@"
+	shift 1
+	
+	local temporary_folder_path="$(pwd)"/temporary
+	make_temporary_folder
+	
+	local user="$1"
+	local host
+	if [ $# -gt 1 ]; then
+		host="$2"
+	else
+		host="$user".rsync.net
+	fi
+	local port=22
+	local rsync_net_tls_version=1.2
+	
+	local configuration_folder_path
+	set_configuration_folder_path
+	chmod 0700 "$configuration_folder_path"
+
+	local our_library_folder_path="$(pwd)"/library/rsync.net
+	
+	local known_hosts_file_path="$configuration_folder_path"/known_hosts
+	download_and_validate_ssh_host_key_then_add_to_known_hosts
+	
+	create_configuration_file_rclone_conf
+	make_basic_folder_structure_and_filters
+	lockdown_configuration
+
+	# TODO: Download this file automatically?
+	# TODO: gpg verify pgp message.
+}
+
+main "$@"

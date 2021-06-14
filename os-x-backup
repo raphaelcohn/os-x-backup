@@ -110,6 +110,7 @@ _program_name='os-x-backup'
 . functions/common.sh
 . functions/apfs.sh
 . functions/apfs-snapshot.sh
+. functions/download.sh
 . functions/rclone.sh
 . functions/remote-backup.sh
 . functions/rsync.sh
