@@ -22,6 +22,19 @@ cd os-x-backup
 The program does need to be able to create a writable folder `temporary` inside its root (`os-x-backup/`). The reason for this is to ensure that any sensitive data is kept local to the user and there is no dependency on a temporary partition or a potential Time-of-Check-Time-of-Use (TOCTOU) security vulnerability. This may change in the future.
 
 
+## Using with (rsync.net)[https://rsync.net]
+
+As a one off, run the following:-
+
+```
+cd tools
+./install-rclone-configuration-for-rsync-net install [my rclone user name]
+./create-and-install-ssh-key
+```
+
+This will securely authenticate the rsync.net SSH key fingerprints, generate a `known_hosts` file and create a template configuration in `/.config/os-x-backup`. This will also create a SSH certificate authority in `~/.config/os-x-backup-certificate-authority`.
+
+
 ## Configuration
 
 Ordinarily, configuration for `os-x-backup` is stored in `~/.config/os-x-backup`. To override the use of `~/.config/os-x-backup` as the location of configuration, one can set the environment variable `OS_X_BACKUP_CONFIGURATION_FOLDER_PATH`. The remainder of configuration is stored using Time Machine and Keychain Access.

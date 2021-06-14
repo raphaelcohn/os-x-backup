@@ -1,0 +1,3 @@
+[submodule "library/ssh-audit"]
+	path = library/ssh-audit
+	url = https://github.com/arthepsy/ssh-audit

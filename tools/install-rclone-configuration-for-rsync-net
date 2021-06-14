@@ -106,7 +106,7 @@ _program_path_find()
 cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
 
 cd "$(pwd)"/..
-_program_name='create-and-install-ssh-key'
+_program_name='install-rclone-configuration-for-rsync-net'
 . functions/common.sh
 . functions/download.sh
 
@@ -222,7 +222,7 @@ download_and_validate_ssh_host_key_then_add_to_known_hosts()
 	rm -rf "$known_hosts_file_path"
 	
 	local key_type
-	for key_type in rsa ecdsa ed25519
+	for key_type in rsa ed25519
 	do
 		local known_hosts_snippet_file_path
 		local reconstructed_host_public_key_file_path

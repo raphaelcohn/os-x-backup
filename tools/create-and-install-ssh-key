@@ -263,18 +263,108 @@ add_keys_to_os_x_keychain()
 	ssh-add -K "$configuration_folder_path"/"$private_key_file_name"
 }
 
-depends chmod scp
+depends cat chmod scp
 scp_certificate_authority_public_key_to_authorized_keys()
 {
-	set -x
+	local temporary_configuration="$TMPDIR"/ssh_config
+	cat >"$temporary_configuration" <<EOF
+Host *
+	User ${user}
+	IdentitiesOnly yes
+	IdentityFile /dev/null
+	Port ${port}
+	GlobalKnownHostsFile "${known_hosts_file}"
+	UserKnownHostsFile "${known_hosts_file}"
+	CASignatureAlgorithms ssh-ed25519,rsa-sha2-512
+	Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+	KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+	MACs umac-128-etm@openssh.com,hmac-sha2-512-etm@openssh.com
+	HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,ssh-ed25519,rsa-sha2-512
+	HostbasedKeyTypes ssh-ed25519-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,ssh-ed25519,rsa-sha2-512
+	FingerprintHash sha256
+	HashKnownHosts yes
+	StrictHostKeyChecking yes
+	UpdateHostKeys yes
+	CheckHostIP no
+	Compression no
+	PreferredAuthentications password
+	PubkeyAuthentication no
+	PasswordAuthentication yes
+	HostbasedAuthentication no
+	KbdInteractiveAuthentication no
+	BatchMode no
+	IdentitiesOnly no
+	ClearAllForwardings yes
+	ControlMaster no
+	ForwardAgent no
+	ForwardX11 no
+	GatewayPorts no
+	GSSAPIAuthentication no
+	GSSAPIDelegateCredentials no
+	IPQoS cs1
+	LogLevel INFO
+	SyslogFacility USER
+	NoHostAuthenticationForLocalhost no
+	NumberOfPasswordPrompts 3
+	PermitLocalCommand no
+	RekeyLimit default none
+	StreamLocalBindMask 0177
+	StreamLocalBindUnlink no
+	Tunnel no
+EOF
+
+	# Could be authorized_keys2 as part of a rotation scheme.
+	local file_path=.ssh/authorized_keys
+
+	printf 'Copying authorized_keys for certificate authority to host %s; you may be asked for a password more than once\n' "$host" 1>&2
+	ssh -v -F "$temporary_configuration" "$host" rm -rf "$file_path"
 	chmod 0600 "$known_hosts_file"
-		printf 'Copying authorized_keys for certificate authority to host; you may be asked for a password' 1>&2
-		scp -p "$port" -o 'UserKnownHostsFile "'"$known_hosts_file"'"' "$configuration_folder_path"/"$certified_public_key_file_name" "$user"@"$host":.ssh/authorized_keys
+		scp -v -F "$temporary_configuration" "$certificate_authority_folder_path"/"$certificate_authority_authorized_keys_snippet_file_name" "$host":"$file_path"
 	chmod 0400 "$known_hosts_file"
+}
+
+guard_arguments()
+{
+	usage_message="Specify $_program_name
+	
+	Uses rclone.conf and known_hosts files in ~/.config/os-x-backup to do the following:-
+	
+	1) Creates a SSH certificate authority in ~/.config/os-x-backup-certificate-authority (if necessary).
+	2) Creates a new user private key and public certificate.
+	3) Installs the new user's private key in the OS X Keychain.
+	4) Copies the SSH certificate authority to the remote rsync.net SSH server.
+	
+	It is recommended that install-rclone-configuration-for-rsync-net is run first to create rclone.conf and known_hosts.
+	
+	eg ./$_program_name
+"
+	case $# in
+		
+		0)
+			:
+		;;
+		
+		*)
+			case "$1" in
+				
+				help|-h|-help|--help)
+					exit_help_message "$usage_message"
+				;;
+				
+				*)
+					exit_usage_message "Unsupported options"
+				;;
+				
+			esac
+		;;
+		
+	esac
 }
 
 main()
 {
+	guard_arguments "$@"
+	
 	local configuration_folder_path
 	set_configuration_folder_path
 
@@ -296,6 +386,7 @@ main()
 	
 	local key_type='ed25519'
 	
+	local certificate_authority_created=false
 	local certificate_authority_private_key_file_name=certificate-authority.id_"$key_type"
 	local certificate_authority_public_key_file_name="$certificate_authority_private_key_file_name".pub
 	local certificate_authority_next_serial_number_file_name="$certificate_authority_private_key_file_name".next_serial_number
@@ -316,8 +407,8 @@ main()
 	
 	install_user_private_key_and_certificate
 	
-	#add_keys_to_os_x_keychain
-	
+	add_keys_to_os_x_keychain
+
 	if $certificate_authority_created; then
 		scp_certificate_authority_public_key_to_authorized_keys
 	fi
