@@ -117,7 +117,7 @@ _generate_key()
 	local private_key_file_name="$2"
 	
 	printf 'Please entry a password for a new %s key\n' "$comment"
-	ssh-keygen -q -t "$key_type" -C "$comment" -f "$TMPDIR"/"$private_key_file_name" 1>/dev/null
+	ssh-keygen -q -a "$key_derivation_function_rounds" -t "$key_type" -C "$comment" -f "$TMPDIR"/"$private_key_file_name" 1>/dev/null
 }
 
 generate_user_key()
@@ -275,12 +275,12 @@ Host *
 	Port ${port}
 	GlobalKnownHostsFile "${known_hosts_file}"
 	UserKnownHostsFile "${known_hosts_file}"
-	CASignatureAlgorithms ssh-ed25519,rsa-sha2-512
-	Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
-	KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
-	MACs umac-128-etm@openssh.com,hmac-sha2-512-etm@openssh.com
-	HostKeyAlgorithms ssh-ed25519-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,ssh-ed25519,rsa-sha2-512
-	HostbasedKeyTypes ssh-ed25519-cert-v01@openssh.com,rsa-sha2-512-cert-v01@openssh.com,ssh-ed25519,rsa-sha2-512
+	CASignatureAlgorithms ssh-ed25519
+	Ciphers chacha20-poly1305@openssh.com
+	KexAlgorithms curve25519-sha256
+	MACs hmac-sha2-512-etm@openssh.com
+	HostKeyAlgorithms ssh-ed25519
+	HostbasedKeyTypes ssh-ed25519
 	FingerprintHash sha256
 	HashKnownHosts yes
 	StrictHostKeyChecking yes
@@ -293,6 +293,7 @@ Host *
 	HostbasedAuthentication no
 	KbdInteractiveAuthentication no
 	BatchMode no
+	UseRoaming no
 	IdentitiesOnly no
 	ClearAllForwardings yes
 	ControlMaster no
@@ -384,6 +385,9 @@ main()
 	local known_hosts_file
 	rclone_read_sftp_configuration
 	
+	local key_derivation_function_rounds=64
+	
+	# Use the security key (sk) variant ed25519-sk to use FIDO / U2F
 	local key_type='ed25519'
 	
 	local certificate_authority_created=false

@@ -341,6 +341,10 @@ set_configuration_folder_path()
 			configuration_folder_path="$(pwd)"
 		cd - 1>/dev/null 2>/dev/null
 		unset OS_X_BACKUP_CONFIGURATION_FOLDER_PATH
+	else if [ -n "${XDG_CONFIG_HOME+set}" ]; then
+		cd "$XDG_CONFIG_HOME" 1>/dev/null 2>/dev/null
+			configuration_folder_path="$(pwd)"/os-x-backup
+		cd - 1>/dev/null 2>/dev/null
 	else
 		cd ~ 1>/dev/null 2>/dev/null
 			configuration_folder_path="$(pwd)"/.config/os-x-backup

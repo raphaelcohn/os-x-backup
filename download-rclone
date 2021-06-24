@@ -108,6 +108,7 @@ cd "$(_program_path_find)" 1>/dev/null 2>/dev/null
 _program_name='download-rclone'
 
 . functions/common.sh
+. functions/download.sh
 . functions/rclone.sh
 
 depends mkdir unzip rm chmod mv

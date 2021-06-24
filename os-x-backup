@@ -449,6 +449,7 @@ guard_arguments()
 	
 	Environment Variables
 	OS_X_BACKUP_CONFIGURATION_FOLDER_PATH	Overrides the location of the configuration folder (by default, ~/.config/os-x-backup).
+	XDG_CONFIG_HOME							If OS_X_BACKUP_CONFIGURATION_FOLDER_PATH is not specified, a value instead of ~/.config.
 "
 	case $# in
 		

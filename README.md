@@ -37,7 +37,7 @@ This will securely authenticate the rsync.net SSH key fingerprints, generate a `
 
 ## Configuration
 
-Ordinarily, configuration for `os-x-backup` is stored in `~/.config/os-x-backup`. To override the use of `~/.config/os-x-backup` as the location of configuration, one can set the environment variable `OS_X_BACKUP_CONFIGURATION_FOLDER_PATH`. The remainder of configuration is stored using Time Machine and Keychain Access.
+Ordinarily, configuration for `os-x-backup` is stored in `~/.config/os-x-backup`. To override the use of `~/.config/os-x-backup` as the location of configuration, one can set the environment variable `OS_X_BACKUP_CONFIGURATION_FOLDER_PATH`. The remainder of configuration is stored using Time Machine and Keychain Access. If the variable `XDG_CONFIG_HOME` is set but `OS_X_BACKUP_CONFIGURATION_FOLDER_PATH` is not set, it replaces the path searched for `os-x-backup`.
 
 This folder can contain a number of files and folders, but the minimum typical content is as follows:-
 

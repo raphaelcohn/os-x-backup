@@ -38,6 +38,7 @@ Host *
 	HostbasedAuthentication no
 	KbdInteractiveAuthentication no
 	BatchMode yes
+	UseRoaming no
 	IdentitiesOnly no
 	ClearAllForwardings yes
 	ControlMaster no
